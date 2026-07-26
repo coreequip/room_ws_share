@@ -1,0 +1,18 @@
+{
+  "name": "roomshare",
+  "short_name": "roomshare",
+  "description": "Share your screen right from the browser - no install required.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#484d5d",
+  "theme_color": "#166f16",
+  "icons": [
+    {
+      "src": "icon.svg?v=a10023",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+/* Droid Sans, Apache License 2.0, vendored from fonts.gstatic.com (see Task 2 Step 3) */
+@font-face {
+  font-family: 'Droid Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/droidsans-regular.woff2?v=7a2914') format('woff2');
+}
+@font-face {
+  font-family: 'Droid Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/droidsans-bold.woff2?v=e803cd') format('woff2');
+}

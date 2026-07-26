@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>roomshare</title>
+
+  <link rel="icon" href="icon.svg?v=a10023" type="image/svg+xml" />
+  <link rel="manifest" href="manifest.json?v=b1233b" />
+  <meta name="theme-color" content="#166f16" />
+
+  <link rel="stylesheet" href="css/fonts.css?v=a9621f" />
+  <link rel="stylesheet" href="css/theme.css?v=2a9ac0" />
+  <link rel="stylesheet" href="css/layout.css?v=cff63b" />
+  <link rel="stylesheet" href="css/stage.css?v=571db7" />
+  <link rel="stylesheet" href="css/controls-panel.css?v=412ba8" />
+  <link rel="stylesheet" href="css/buttons.css?v=e30d99" />
+  <link rel="stylesheet" href="css/spinner.css?v=7fa638" />
+  <link rel="stylesheet" href="css/video-tile.css?v=8c0a7f" />
+  <link rel="stylesheet" href="css/modal.css?v=adb44c" />
+  <link rel="stylesheet" href="css/toast.css?v=b3d3bf" />
+</head>
+<body>
+
+<main class="stage is-empty" data-role="stage">
+  <video class="stage-video" data-role="stage-video" autoplay playsinline style="display:none;"></video>
+  <div class="video-tile-label" data-role="stage-label" style="display:none;"></div>
+
+  <div class="stage-empty" data-role="stage-empty">
+    <div class="image-page-spinner" data-role="connecting-spinner"></div>
+    <p class="status-text" data-role="status"></p>
+  </div>
+
+  <div class="toast is-hidden" data-role="toast"></div>
+
+  <div class="stage-overlay" data-role="stage-overlay">
+    <div class="thumbnail-rail" data-role="thumbnail-rail"></div>
+    <div class="controls-panel" data-role="controls-panel">
+      <button class="btn btn-confirm" data-role="share-button"></button>
+      <button class="btn" data-role="copy-link-button"></button>
+      <button class="btn" data-role="fullscreen-button"></button>
+      <button class="btn" data-role="zoom-button"></button>
+      <button class="btn" data-role="info-button"></button>
+      <div class="member-widget" data-role="member-widget">
+        <div class="member-widget-count" data-role="member-widget-count"></div>
+        <div class="member-widget-status" data-role="member-widget-status"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop is-hidden" data-role="info-modal-backdrop">
+    <div class="modal" data-role="info-modal">
+      <div class="modal-header">
+        <h2 class="modal-title" data-role="info-modal-title"></h2>
+        <button class="btn modal-close" data-role="info-modal-close">&times;</button>
+      </div>
+      <div class="modal-body" data-role="info-modal-body"></div>
+    </div>
+  </div>
+</main>
+
+<script src="js/roomws.js?v=eb1bc1"></script>
+<script type="module" src="js/app.js?v=829be3"></script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+#!/bin/sh
+# Installed via: git config core.hooksPath githooks
+set -e
+ROOT="$(git rev-parse --show-toplevel)"
+node "$ROOT/scripts/cache-bust.mjs"
+git add "$ROOT/index.html" "$ROOT/manifest.json" "$ROOT"/css/*.css "$ROOT"/js/*.js

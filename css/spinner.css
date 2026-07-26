@@ -1,0 +1,15 @@
+@keyframes spin { to { transform: rotate(1turn); } }
+
+.image-page-spinner {
+  border: 3px solid #ffffff26;
+  border-top-color: #fff9;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  animation: spin .8s linear infinite;
+}
+.image-page-spinner-sm {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+}

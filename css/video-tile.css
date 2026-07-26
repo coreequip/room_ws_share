@@ -1,0 +1,34 @@
+.video-tile {
+  position: relative;
+  background-color: #06070a;
+  border: 1px solid #000;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow:
+    1px 1px 1px #ffffff1a,
+    0 0 5px #ffffff0d,
+    inset 0 0 5px #00000080,
+    inset 5px 5px 10px #0000004d;
+}
+.video-tile video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background-color: #000;
+  object-fit: contain;
+}
+.video-tile-label {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 4px 10px;
+  background: linear-gradient(0deg, #000000b3, transparent);
+  color: #eee;
+  font-size: .8em;
+  text-shadow: 0 1px #000;
+}
+
+.thumbnail {
+  width: 160px;
+}

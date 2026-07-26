@@ -1,0 +1,38 @@
+.stage-overlay {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  z-index: 10;
+  transition: opacity .25s ease;
+}
+.stage-overlay.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.thumbnail-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.controls-panel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: rgba(30, 32, 40, 0.75);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  padding: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35), 0 2px 6px rgba(0,0,0,0.25);
+  transition: opacity .25s ease;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}

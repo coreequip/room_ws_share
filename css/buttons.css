@@ -1,0 +1,82 @@
+.btn {
+  cursor: pointer;
+  color: #eee;
+  text-shadow: 0 1px #000;
+  background-color: var(--color-btn-base);
+  background-image: linear-gradient(#0000, #0003);
+  border: 1px solid #1a1d24;
+  border-radius: 3px;
+  padding: 8px;
+  font-family: inherit;
+  text-decoration: none;
+  transition: background-color .15s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    inset 0 1px 1px #ffffff26,
+    inset 0 0 5px #ffffff0d,
+    0 0 5px #00001980,
+    0 5px 10px #0000194d;
+}
+.btn svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+.btn:hover:not(:disabled) { background-color: #4a5166; }
+.btn:active:not(:disabled) {
+  background-color: #333844;
+  box-shadow: 0 1px 1px #ffffff1a, inset 0 0 5px #0006, inset 0 5px 10px #0003;
+}
+.btn:disabled { opacity: .5; cursor: default; }
+
+.btn-confirm {
+  background-color: var(--color-btn-confirm);
+  border-color: #072907;
+}
+.btn-confirm:hover:not(:disabled) { background-color: #1d861d; }
+.btn-confirm:active:not(:disabled) { background-color: #0f580f; }
+
+.btn-cancel {
+  background-color: var(--color-btn-cancel);
+  border-color: #3a0c0c;
+}
+.btn-cancel:hover:not(:disabled) { background-color: #a42424; }
+
+.member-widget {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 76px;
+  padding: 4px 8px;
+  color: #eee;
+}
+
+.member-widget-count {
+  font-weight: 700;
+  font-size: 0.8em;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.member-widget-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 16px;
+  font-size: 0.72em;
+  color: rgba(255, 255, 255, 0.6);
+  white-space: nowrap;
+}
+
+.member-widget-status .sparkline {
+  width: 60px;
+  height: 16px;
+  color: #8bb324;
+}
