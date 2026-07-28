@@ -1,5 +1,6 @@
 import { icons } from './icons.js?v=3ca587';
 
+const SELF_KEY = 'self:local';
 const IDLE_HIDE_DELAY_MS = 2500;
 const TOAST_DURATION_MS = 3000;
 const SPARKLINE_WIDTH = 60;
@@ -13,6 +14,7 @@ export class Ui {
     this.t = t;
     this.tiles = new Map(); // key -> { stream, label }
     this.mainKey = null;
+    this.selfPrevMainKey = null; // mainKey to restore when the self tile is un-promoted
     this.idleTimer = null;
     this.isZoomed = false;
     this.toastTimer = null;
@@ -175,11 +177,11 @@ export class Ui {
   }
 
   showLocalPreview(stream) {
-    this._setTile('self:local', stream, this.t('youLabel'));
+    this._setTile(SELF_KEY, stream, this.t('youLabel'), { autoPromote: false });
   }
 
   removeLocalPreview() {
-    this._removeTile('self:local');
+    this._removeTile(SELF_KEY);
   }
 
   addRemoteTrack(peerId, streamId, mediaStream) {
@@ -200,7 +202,7 @@ export class Ui {
       this.setTileStatus(peerId, streamId, this.t('tileConnectionFailed'));
       return;
     }
-    this._setTile(key, null, this.t('tileConnectionFailed'), true);
+    this._setTile(key, null, this.t('tileConnectionFailed'), { hasError: true });
   }
 
   removeTile(peerId, streamId) {
@@ -223,9 +225,9 @@ export class Ui {
     if (!this.isZoomed) this.stageVideo.style.objectPosition = '';
   }
 
-  _setTile(key, stream, label, hasError = false) {
+  _setTile(key, stream, label, { hasError = false, autoPromote = true } = {}) {
     this.tiles.set(key, { stream, label, hasError });
-    if (this.mainKey === null) {
+    if (autoPromote && this.mainKey === null) {
       this.mainKey = key;
       this._handleMouseActivity();
     }
@@ -235,6 +237,7 @@ export class Ui {
   _removeTile(key) {
     if (!this.tiles.has(key)) return;
     this.tiles.delete(key);
+    if (key === SELF_KEY) this.selfPrevMainKey = null;
     if (this.mainKey === key) {
       const [nextKey] = this.tiles.keys();
       this.mainKey = nextKey ?? null;
@@ -243,9 +246,33 @@ export class Ui {
     this._render();
   }
 
+  _handleThumbnailClick(key) {
+    if (key === SELF_KEY && key === this.mainKey) {
+      this._demoteSelf();
+    } else {
+      this._promote(key);
+    }
+  }
+
   _promote(key) {
     if (!this.tiles.has(key) || key === this.mainKey) return;
+    if (key === SELF_KEY) {
+      // Remember what was showing before, so a second click on the self
+      // thumbnail can hand the main slot back instead of leaving it empty.
+      this.selfPrevMainKey = this.mainKey;
+    } else if (this.mainKey === SELF_KEY) {
+      this.selfPrevMainKey = null;
+    }
     this.mainKey = key;
+    this._resetZoom();
+    this._render();
+  }
+
+  _demoteSelf() {
+    if (this.mainKey !== SELF_KEY) return;
+    const fallback = this.selfPrevMainKey;
+    this.mainKey = fallback !== null && this.tiles.has(fallback) ? fallback : null;
+    this.selfPrevMainKey = null;
     this._resetZoom();
     this._render();
   }
@@ -261,9 +288,11 @@ export class Ui {
   _handlePan(event) {
     if (!this.isZoomed) return;
     const rect = this.stageEl.getBoundingClientRect();
-    const percent = ((event.clientX - rect.left) / rect.width) * 100;
-    const clamped = Math.min(100, Math.max(0, percent));
-    this.stageVideo.style.objectPosition = `${clamped}% center`;
+    const percentX = ((event.clientX - rect.left) / rect.width) * 100;
+    const percentY = ((event.clientY - rect.top) / rect.height) * 100;
+    const clampedX = Math.min(100, Math.max(0, percentX));
+    const clampedY = Math.min(100, Math.max(0, percentY));
+    this.stageVideo.style.objectPosition = `${clampedX}% ${clampedY}%`;
   }
 
   _handleMouseActivity() {
@@ -294,7 +323,9 @@ export class Ui {
 
     this.thumbnailRail.replaceChildren();
     for (const [key, tile] of this.tiles) {
-      if (key === this.mainKey) continue;
+      // The self tile always keeps a thumbnail, even while it's main, so
+      // clicking it again can hand the main slot back (see _demoteSelf).
+      if (key === this.mainKey && key !== SELF_KEY) continue;
       const container = document.createElement('div');
       container.className = 'video-tile thumbnail';
       const video = document.createElement('video');
@@ -305,7 +336,7 @@ export class Ui {
       label.className = 'video-tile-label';
       label.textContent = tile.label;
       container.append(video, label);
-      container.addEventListener('click', () => this._promote(key));
+      container.addEventListener('click', () => this._handleThumbnailClick(key));
       this.thumbnailRail.append(container);
     }
   }
