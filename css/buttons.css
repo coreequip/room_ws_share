@@ -80,3 +80,7 @@
   height: 16px;
   color: #8bb324;
 }
+
+.btn.is-hidden {
+  display: none;
+}

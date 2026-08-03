@@ -1,4 +1,6 @@
 import { icons } from './icons.js?v=b0f4a7';
+import { computeVideoContentRect, pointToNormalized } from './paint-geometry.js?v=480280';
+import { generateStrokeId, makeCursor, makeStrokeStart, makeStrokePoint, makeStrokeEnd } from './paint-protocol.js?v=daf61a';
 
 const SELF_KEY = 'self:local';
 const IDLE_HIDE_DELAY_MS = 2500;
@@ -9,16 +11,22 @@ const SPARKLINE_MAX_SAMPLES = 20;
 const SPARKLINE_SMOOTHING = 0.3;
 
 export class Ui {
-  constructor({ root, t, onShareClick, onCopyLinkClick, onFullscreenClick, onZoomClick, onInfoClick, onInfoModalClose }) {
+  constructor({ root, t, onShareClick, onCopyLinkClick, onFullscreenClick, onZoomClick, onPaintClick, onPaintPointerEvent, onInfoClick, onInfoModalClose }) {
     this.root = root;
     this.t = t;
-    this.tiles = new Map(); // key -> { stream, label }
+    this._onPaintPointerEvent = onPaintPointerEvent;
+    this.tiles = new Map(); // key -> { stream, label, hasError, peerId, streamId }
     this.mainKey = null;
     this.selfPrevMainKey = null; // mainKey to restore when the self tile is un-promoted
     this.idleTimer = null;
     this.isZoomed = false;
     this.toastTimer = null;
     this.bitrateSamples = [];
+    this.paintModeActive = false;
+    this._activePaintStrokeId = null;
+    this._paintMouseMoveHandler = (event) => this._handlePaintMouseMove(event);
+    this._paintMouseDownHandler = (event) => this._handlePaintMouseDown(event);
+    this._paintMouseUpHandler = () => this._endPaintStroke();
 
     this.stageEl = root.querySelector('[data-role="stage"]');
     this.stageVideo = root.querySelector('[data-role="stage-video"]');
@@ -32,6 +40,7 @@ export class Ui {
     this.copyLinkButton = root.querySelector('[data-role="copy-link-button"]');
     this.fullscreenButton = root.querySelector('[data-role="fullscreen-button"]');
     this.zoomButton = root.querySelector('[data-role="zoom-button"]');
+    this.paintButton = root.querySelector('[data-role="paint-button"]');
     this.infoButton = root.querySelector('[data-role="info-button"]');
     this.infoModalBackdrop = root.querySelector('[data-role="info-modal-backdrop"]');
     this.infoModalTitleEl = root.querySelector('[data-role="info-modal-title"]');
@@ -49,6 +58,8 @@ export class Ui {
     this.fullscreenButton.title = this.t('fullscreenEnter');
     this.zoomButton.innerHTML = icons.zoomEnter;
     this.zoomButton.title = this.t('zoomEnter');
+    this.paintButton.innerHTML = icons.paint;
+    this.paintButton.title = this.t('paintEnter');
     this.infoButton.innerHTML = icons.info;
     this.infoButton.title = this.t('infoLabel');
     this.infoModalTitleEl.textContent = this.t('infoLabel');
@@ -61,6 +72,7 @@ export class Ui {
     this.copyLinkButton.addEventListener('click', onCopyLinkClick);
     this.fullscreenButton.addEventListener('click', onFullscreenClick);
     this.zoomButton.addEventListener('click', onZoomClick);
+    this.paintButton.addEventListener('click', onPaintClick);
     this.infoButton.addEventListener('click', onInfoClick);
     this.infoModalCloseButton.addEventListener('click', onInfoModalClose);
     this.infoModalBackdrop.addEventListener('click', (event) => {
@@ -185,7 +197,7 @@ export class Ui {
   }
 
   addRemoteTrack(peerId, streamId, mediaStream) {
-    this._setTile(`${peerId}:${streamId}`, mediaStream, peerId.slice(0, 8));
+    this._setTile(`${peerId}:${streamId}`, mediaStream, peerId.slice(0, 8), { peerId, streamId });
   }
 
   setTileStatus(peerId, streamId, text) {
@@ -225,10 +237,78 @@ export class Ui {
     if (!this.isZoomed) this.stageVideo.style.objectPosition = '';
   }
 
-  _setTile(key, stream, label, { hasError = false, autoPromote = true } = {}) {
-    this.tiles.set(key, { stream, label, hasError });
+  togglePaintMode() {
+    this._setPaintMode(!this.paintModeActive);
+  }
+
+  setPaintChannelOpen(peerId, streamId, isOpen) {
+    const tile = this.tiles.get(`${peerId}:${streamId}`);
+    if (!tile) return;
+    tile.paintChannelOpen = isOpen;
+    this._updatePaintButton();
+  }
+
+  _setPaintMode(active) {
+    this.paintModeActive = active;
+    this.paintButton.title = active ? this.t('paintExit') : this.t('paintEnter');
+    this.paintButton.classList.toggle('btn-cancel', active);
+    this.paintButton.classList.toggle('btn-confirm', !active);
+    this.stageVideo.classList.toggle('is-painting', active);
+    if (active) {
+      this.stageVideo.addEventListener('mousemove', this._paintMouseMoveHandler);
+      this.stageVideo.addEventListener('mousedown', this._paintMouseDownHandler);
+      this.stageVideo.addEventListener('mouseup', this._paintMouseUpHandler);
+      this.stageVideo.addEventListener('mouseleave', this._paintMouseUpHandler);
+    } else {
+      this.stageVideo.removeEventListener('mousemove', this._paintMouseMoveHandler);
+      this.stageVideo.removeEventListener('mousedown', this._paintMouseDownHandler);
+      this.stageVideo.removeEventListener('mouseup', this._paintMouseUpHandler);
+      this.stageVideo.removeEventListener('mouseleave', this._paintMouseUpHandler);
+      this._endPaintStroke();
+    }
+  }
+
+  _updatePaintButton() {
+    const mainTile = this.mainKey !== null && this.mainKey !== SELF_KEY ? this.tiles.get(this.mainKey) : null;
+    this.paintButton.classList.toggle('is-hidden', !mainTile);
+    this.paintButton.disabled = !mainTile || !mainTile.paintChannelOpen;
+    if (!mainTile && this.paintModeActive) this._setPaintMode(false);
+  }
+
+  _normalizedPaintPoint(event) {
+    const rect = this.stageVideo.getBoundingClientRect();
+    const contentRect = computeVideoContentRect(this.stageVideo, rect);
+    return pointToNormalized(event.clientX - rect.left, event.clientY - rect.top, contentRect);
+  }
+
+  _handlePaintMouseMove(event) {
+    const { x, y } = this._normalizedPaintPoint(event);
+    this._emitPaintEvent(makeCursor(x, y));
+    if (this._activePaintStrokeId !== null) this._emitPaintEvent(makeStrokePoint(this._activePaintStrokeId, x, y));
+  }
+
+  _handlePaintMouseDown(event) {
+    const { x, y } = this._normalizedPaintPoint(event);
+    this._activePaintStrokeId = generateStrokeId();
+    this._emitPaintEvent(makeStrokeStart(this._activePaintStrokeId, x, y));
+  }
+
+  _endPaintStroke() {
+    if (this._activePaintStrokeId === null) return;
+    this._emitPaintEvent(makeStrokeEnd(this._activePaintStrokeId));
+    this._activePaintStrokeId = null;
+  }
+
+  _emitPaintEvent(message) {
+    const mainTile = this.tiles.get(this.mainKey);
+    if (!mainTile || mainTile.peerId === undefined) return;
+    this._onPaintPointerEvent(mainTile.peerId, mainTile.streamId, message);
+  }
+
+  _setTile(key, stream, label, { hasError = false, autoPromote = true, peerId, streamId } = {}) {
+    this.tiles.set(key, { stream, label, hasError, peerId, streamId });
     if (autoPromote && this.mainKey === null) {
-      this.mainKey = key;
+      this._setMainKey(key);
       this._handleMouseActivity();
     }
     this._render();
@@ -240,10 +320,15 @@ export class Ui {
     if (key === SELF_KEY) this.selfPrevMainKey = null;
     if (this.mainKey === key) {
       const [nextKey] = this.tiles.keys();
-      this.mainKey = nextKey ?? null;
+      this._setMainKey(nextKey ?? null);
       this._resetZoom();
     }
     this._render();
+  }
+
+  _setMainKey(key) {
+    this.mainKey = key;
+    if (this.paintModeActive) this._setPaintMode(false);
   }
 
   _handleThumbnailClick(key) {
@@ -263,7 +348,7 @@ export class Ui {
     } else if (this.mainKey === SELF_KEY) {
       this.selfPrevMainKey = null;
     }
-    this.mainKey = key;
+    this._setMainKey(key);
     this._resetZoom();
     this._render();
   }
@@ -271,7 +356,7 @@ export class Ui {
   _demoteSelf() {
     if (this.mainKey !== SELF_KEY) return;
     const fallback = this.selfPrevMainKey;
-    this.mainKey = fallback !== null && this.tiles.has(fallback) ? fallback : null;
+    this._setMainKey(fallback !== null && this.tiles.has(fallback) ? fallback : null);
     this.selfPrevMainKey = null;
     this._resetZoom();
     this._render();
@@ -339,5 +424,6 @@ export class Ui {
       container.addEventListener('click', () => this._handleThumbnailClick(key));
       this.thumbnailRail.append(container);
     }
+    this._updatePaintButton();
   }
 }

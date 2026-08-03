@@ -3,7 +3,7 @@ import { detectLocale, createTranslator } from './i18n.js?v=0d97ad';
 import { generateRoomId, getRoomIdFromLocation, roomIdToHash } from './room-id.js?v=b0533e';
 import { Signaling } from './signaling.js?v=c727e9';
 import { PeerManager } from './peers.js?v=4b0a45';
-import { Ui } from './ui.js?v=b2aa40';
+import { Ui } from './ui.js?v=755e20';
 
 const COPY_FEEDBACK_MS = 2000;
 const STATS_POLL_MS = 1000;
@@ -40,6 +40,8 @@ function main() {
     onCopyLinkClick: () => copyLink(),
     onFullscreenClick: () => ui.toggleFullscreen(),
     onZoomClick: () => ui.toggleZoom(),
+    onPaintClick: () => ui.togglePaintMode(),
+    onPaintPointerEvent: (peerId, streamId, message) => peers.sendPaint(peerId, streamId, message),
     onInfoClick: () => toggleInfoModal(),
     onInfoModalClose: () => closeInfoModal(),
   });
@@ -53,6 +55,7 @@ function main() {
     if (key === 'c') copyLink();
     if (key === 'f') ui.toggleFullscreen();
     if (key === 'z') ui.toggleZoom();
+    if (key === 'p') ui.togglePaintMode();
     if (key === 'i') toggleInfoModal();
     if (key === 'escape') {
       // A mouse click focuses the button in some browsers; pressing Escape
@@ -103,6 +106,8 @@ function main() {
         if (state === 'failed') ui.showConnectionFailed(peerId, streamId);
         if (state === 'closed' || state === 'disconnected') ui.removeTile(peerId, streamId);
       },
+      onPaintMessage: () => {}, // wired to the overlay in Task 8
+      onPaintChannelStateChange: (peerId, streamId, state) => ui.setPaintChannelOpen(peerId, streamId, state === 'open'),
     });
 
     signaling.on('members', (members) => ui.setMemberCount(members.length));
