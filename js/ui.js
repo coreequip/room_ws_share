@@ -1,4 +1,4 @@
-import { icons } from './icons.js?v=3ca587';
+import { icons } from './icons.js?v=b0f4a7';
 
 const SELF_KEY = 'self:local';
 const IDLE_HIDE_DELAY_MS = 2500;
