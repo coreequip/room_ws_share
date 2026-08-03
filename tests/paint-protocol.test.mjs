@@ -37,6 +37,16 @@ test('isPaintMessage rejects garbage, unknown types, and missing fields', () => 
   assert.equal(isPaintMessage({ type: 'members' }), false);
   assert.equal(isPaintMessage({ type: 'cursor', x: 'nope', y: 0.2 }), false);
   assert.equal(isPaintMessage({ type: 'stroke-start', x: 0, y: 0 }), false);
+  assert.equal(isPaintMessage({ type: 'stroke-point', x: 0, y: 0 }), false);
+  assert.equal(isPaintMessage({ type: 'stroke-end', id: 123 }), false);
+});
+
+test('isPaintMessage rejects numeric edge cases in coordinate fields', () => {
+  assert.equal(isPaintMessage({ type: 'cursor', x: NaN, y: 0.2 }), false);
+  assert.equal(isPaintMessage({ type: 'cursor', x: Infinity, y: 0.2 }), false);
+  assert.equal(isPaintMessage({ type: 'cursor', x: -Infinity, y: 0.2 }), false);
+  assert.equal(isPaintMessage({ type: 'stroke-start', id: 's1', x: NaN, y: 0 }), false);
+  assert.equal(isPaintMessage({ type: 'stroke-point', id: 's1', x: 0, y: Infinity }), false);
 });
 
 test('parsePaintMessage parses valid JSON into a validated message', () => {
