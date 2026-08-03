@@ -3,7 +3,7 @@ import { detectLocale, createTranslator } from './i18n.js?v=0d97ad';
 import { generateRoomId, getRoomIdFromLocation, roomIdToHash } from './room-id.js?v=b0533e';
 import { Signaling } from './signaling.js?v=c727e9';
 import { PeerManager } from './peers.js?v=4b0a45';
-import { Ui } from './ui.js?v=2d32b7';
+import { Ui } from './ui.js?v=1882a4';
 
 const COPY_FEEDBACK_MS = 2000;
 const STATS_POLL_MS = 1000;
@@ -104,9 +104,12 @@ function main() {
       onRemoteTrack: (peerId, streamId, stream) => ui.addRemoteTrack(peerId, streamId, stream),
       onConnectionStateChange: (peerId, streamId, state) => {
         if (state === 'failed') ui.showConnectionFailed(peerId, streamId);
-        if (state === 'closed' || state === 'disconnected') ui.removeTile(peerId, streamId);
+        if (state === 'closed' || state === 'disconnected') {
+          ui.removeTile(peerId, streamId);
+          ui.removePaintPeer(peerId);
+        }
       },
-      onPaintMessage: () => {}, // wired to the overlay in Task 8
+      onPaintMessage: (peerId, streamId, message) => ui.handlePaintMessage(peerId, message),
       onPaintChannelStateChange: (peerId, streamId, state) => ui.setPaintChannelOpen(peerId, streamId, state === 'open'),
     });
 

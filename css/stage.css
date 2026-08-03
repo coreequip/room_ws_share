@@ -37,3 +37,9 @@
 .stage-video.is-painting {
   cursor: crosshair;
 }
+
+.paint-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}

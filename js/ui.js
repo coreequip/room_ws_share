@@ -1,6 +1,7 @@
 import { icons } from './icons.js?v=b0f4a7';
 import { computeVideoContentRect, pointToNormalized } from './paint-geometry.js?v=480280';
 import { generateStrokeId, makeCursor, makeStrokeStart, makeStrokePoint, makeStrokeEnd } from './paint-protocol.js?v=daf61a';
+import { PaintOverlay } from './paint-canvas.js?v=bc8bd2';
 
 const SELF_KEY = 'self:local';
 const IDLE_HIDE_DELAY_MS = 2500;
@@ -22,6 +23,9 @@ export class Ui {
     this.isZoomed = false;
     this.toastTimer = null;
     this.bitrateSamples = [];
+    this.paintOverlay = new PaintOverlay();
+    this.pipOverlay = new PaintOverlay(); // attached in Task 9, kept here so handlePaintMessage/removePaintPeer stay stable
+    this._selfOverlayAttached = false;
     this.paintModeActive = false;
     this._activePaintStrokeId = null;
     this._paintMouseMoveHandler = (event) => this._handlePaintMouseMove(event);
@@ -275,6 +279,35 @@ export class Ui {
     if (!mainTile && this.paintModeActive) this._setPaintMode(false);
   }
 
+  handlePaintMessage(peerId, message) {
+    for (const overlay of this._paintOverlays()) {
+      if (message.type === 'cursor') overlay.setCursor(peerId, message.x, message.y);
+      else if (message.type === 'stroke-start') overlay.startStroke(peerId, message.id, message.x, message.y);
+      else if (message.type === 'stroke-point') overlay.addStrokePoint(peerId, message.id, message.x, message.y);
+      else if (message.type === 'stroke-end') overlay.endStroke(peerId, message.id);
+    }
+  }
+
+  removePaintPeer(peerId) {
+    for (const overlay of this._paintOverlays()) overlay.removePeer(peerId);
+  }
+
+  _paintOverlays() {
+    return [this.paintOverlay, this.pipOverlay];
+  }
+
+  _updateSelfOverlay() {
+    if (this.mainKey === SELF_KEY) {
+      if (!this._selfOverlayAttached) {
+        this.paintOverlay.attach(this.stageVideo, this.stageEl);
+        this._selfOverlayAttached = true;
+      }
+    } else if (this._selfOverlayAttached) {
+      this.paintOverlay.detach();
+      this._selfOverlayAttached = false;
+    }
+  }
+
   _normalizedPaintPoint(event) {
     const rect = this.stageVideo.getBoundingClientRect();
     const contentRect = computeVideoContentRect(this.stageVideo, rect);
@@ -394,6 +427,7 @@ export class Ui {
 
   _render() {
     this.stageEl.classList.toggle('is-empty', this.mainKey === null);
+    this._updateSelfOverlay();
     if (this.mainKey !== null) {
       const main = this.tiles.get(this.mainKey);
       this.stageVideo.style.display = '';
