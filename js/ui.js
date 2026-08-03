@@ -26,6 +26,8 @@ export class Ui {
     this.paintOverlay = new PaintOverlay();
     this.pipOverlay = new PaintOverlay(); // attached in Task 9, kept here so handlePaintMessage/removePaintPeer stay stable
     this._selfOverlayAttached = false;
+    this._paintPeerIds = new Set(); // peerIds we've ever received a paint message from -- NOT this.tiles, because a
+    // pure viewer (never shares media back to us) sends paint messages but never gets a video tile via addRemoteTrack
     this.paintModeActive = false;
     this._activePaintStrokeId = null;
     this._paintMouseMoveHandler = (event) => this._handlePaintMouseMove(event);
@@ -280,6 +282,7 @@ export class Ui {
   }
 
   handlePaintMessage(peerId, message) {
+    this._paintPeerIds.add(peerId);
     for (const overlay of this._paintOverlays()) {
       if (message.type === 'cursor') overlay.setCursor(peerId, message.x, message.y);
       else if (message.type === 'stroke-start') overlay.startStroke(peerId, message.id, message.x, message.y);
@@ -289,6 +292,7 @@ export class Ui {
   }
 
   removePaintPeer(peerId) {
+    this._paintPeerIds.delete(peerId);
     for (const overlay of this._paintOverlays()) overlay.removePeer(peerId);
   }
 
@@ -303,6 +307,15 @@ export class Ui {
         this._selfOverlayAttached = true;
       }
     } else if (this._selfOverlayAttached) {
+      // Clear any stale per-peer cursor/stroke state before detaching, so a
+      // later re-attach (re-promoting self) starts clean instead of
+      // momentarily redrawing a peer's last-known position from before this
+      // detach (PaintOverlay.detach() itself doesn't clear its maps, and
+      // cursors in particular never expire on their own). Iterate
+      // _paintPeerIds rather than this.tiles: a pure viewer (never shares
+      // media back to us) sends paint messages but never gets a video tile,
+      // so it wouldn't be found by scanning tiles.
+      for (const peerId of this._paintPeerIds) this.paintOverlay.removePeer(peerId);
       this.paintOverlay.detach();
       this._selfOverlayAttached = false;
     }
