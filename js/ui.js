@@ -321,6 +321,41 @@ export class Ui {
     }
   }
 
+  async _togglePip(stream) {
+    if (this._pipWindow) {
+      this._pipWindow.close();
+      return;
+    }
+    const pipWindow = await documentPictureInPicture.requestWindow({ width: 320, height: 180 });
+    this._pipWindow = pipWindow;
+    // A Document PiP window is a brand-new Document that does NOT inherit the
+    // opener's <link> stylesheets (this is standard, documented behavior of
+    // the API, not specific to this app) -- so `.paint-overlay`'s real rule
+    // (position:absolute; inset:0; pointer-events:none; see css/stage.css)
+    // never applies here unless copied in manually. Without it the overlay
+    // canvas is laid out in normal flow instead of absolutely stacked over
+    // the video, and since PaintOverlay._draw() resizes the canvas to match
+    // its container's rect on every animation frame, the canvas's own
+    // in-flow height feeds back into the body's content height each tick --
+    // a runaway growth loop confirmed via Playwright (canvas height grew
+    // from ~180 to 16000+ px within half a second of drawing).
+    const style = pipWindow.document.createElement('style');
+    style.textContent = '.paint-overlay { position: absolute; inset: 0; pointer-events: none; }';
+    pipWindow.document.head.append(style);
+    const video = document.createElement('video');
+    video.autoplay = true;
+    video.playsInline = true;
+    video.srcObject = stream;
+    video.style.cssText = 'width:100%;height:100%;display:block;object-fit:contain;';
+    pipWindow.document.body.style.cssText = 'margin:0;background:#000;position:relative;';
+    pipWindow.document.body.append(video);
+    this.pipOverlay.attach(video, pipWindow.document.body);
+    pipWindow.addEventListener('pagehide', () => {
+      this.pipOverlay.detach();
+      this._pipWindow = null;
+    });
+  }
+
   _normalizedPaintPoint(event) {
     const rect = this.stageVideo.getBoundingClientRect();
     const contentRect = computeVideoContentRect(this.stageVideo, rect);
@@ -471,6 +506,17 @@ export class Ui {
       label.className = 'video-tile-label';
       label.textContent = tile.label;
       container.append(video, label);
+      if (key === SELF_KEY && typeof documentPictureInPicture !== 'undefined') {
+        const pipButton = document.createElement('button');
+        pipButton.className = 'video-tile-pip-button';
+        pipButton.innerHTML = icons.pip;
+        pipButton.title = this.t('pipLabel');
+        pipButton.addEventListener('click', (event) => {
+          event.stopPropagation();
+          this._togglePip(tile.stream);
+        });
+        container.append(pipButton);
+      }
       container.addEventListener('click', () => this._handleThumbnailClick(key));
       this.thumbnailRail.append(container);
     }
