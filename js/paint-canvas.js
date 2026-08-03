@@ -30,6 +30,10 @@ export class PaintOverlay {
     this._ensureLoop();
   }
 
+  isAttached() {
+    return this.video !== null;
+  }
+
   detach() {
     if (this.canvas.parentNode) this.canvas.parentNode.removeChild(this.canvas);
     this.video = null;

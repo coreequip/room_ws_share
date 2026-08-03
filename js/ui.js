@@ -1,7 +1,7 @@
 import { icons } from './icons.js?v=b0f4a7';
 import { computeVideoContentRect, pointToNormalized } from './paint-geometry.js?v=480280';
 import { generateStrokeId, makeCursor, makeStrokeStart, makeStrokePoint, makeStrokeEnd } from './paint-protocol.js?v=daf61a';
-import { PaintOverlay } from './paint-canvas.js?v=bc8bd2';
+import { PaintOverlay } from './paint-canvas.js?v=69c86b';
 
 const SELF_KEY = 'self:local';
 const IDLE_HIDE_DELAY_MS = 2500;
@@ -28,6 +28,10 @@ export class Ui {
     this._selfOverlayAttached = false;
     this._paintPeerIds = new Set(); // peerIds we've ever received a paint message from -- NOT this.tiles, because a
     // pure viewer (never shares media back to us) sends paint messages but never gets a video tile via addRemoteTrack
+    this._pendingPaintChannelOpen = new Set(); // `${peerId}:${streamId}` keys whose paint DataChannel already
+    // reported 'open' before addRemoteTrack created the matching tile (event ordering between the DataChannel and
+    // the track isn't guaranteed) -- consumed by _setTile so the tile starts with paintChannelOpen already true
+    // instead of defaulting to undefined and permanently disabling the paint button for that peer.
     this.paintModeActive = false;
     this._activePaintStrokeId = null;
     this._paintMouseMoveHandler = (event) => this._handlePaintMouseMove(event);
@@ -244,12 +248,35 @@ export class Ui {
   }
 
   togglePaintMode() {
+    // Reuse the same availability check _updatePaintButton uses to
+    // enable/disable the button, so the keyboard shortcut can't turn on
+    // paint mode when the button itself would be disabled/hidden (no remote
+    // main tile, or its paint channel isn't open yet).
+    if (!this.paintModeActive && !this.canPaint()) return;
     this._setPaintMode(!this.paintModeActive);
   }
 
+  canPaint() {
+    const mainTile = this._mainTile();
+    return Boolean(mainTile && mainTile.paintChannelOpen);
+  }
+
+  _mainTile() {
+    return this.mainKey !== null && this.mainKey !== SELF_KEY ? this.tiles.get(this.mainKey) : null;
+  }
+
   setPaintChannelOpen(peerId, streamId, isOpen) {
-    const tile = this.tiles.get(`${peerId}:${streamId}`);
-    if (!tile) return;
+    const key = `${peerId}:${streamId}`;
+    const tile = this.tiles.get(key);
+    if (!tile) {
+      // Tile doesn't exist yet -- the DataChannel 'open' event raced ahead of
+      // addRemoteTrack. Remember the signal so _setTile can seed it once the
+      // tile shows up, instead of silently dropping it and leaving the paint
+      // button permanently disabled for this peer.
+      if (isOpen) this._pendingPaintChannelOpen.add(key);
+      else this._pendingPaintChannelOpen.delete(key);
+      return;
+    }
     tile.paintChannelOpen = isOpen;
     this._updatePaintButton();
   }
@@ -275,7 +302,7 @@ export class Ui {
   }
 
   _updatePaintButton() {
-    const mainTile = this.mainKey !== null && this.mainKey !== SELF_KEY ? this.tiles.get(this.mainKey) : null;
+    const mainTile = this._mainTile();
     this.paintButton.classList.toggle('is-hidden', !mainTile);
     this.paintButton.disabled = !mainTile || !mainTile.paintChannelOpen;
     if (!mainTile && this.paintModeActive) this._setPaintMode(false);
@@ -297,7 +324,13 @@ export class Ui {
   }
 
   _paintOverlays() {
-    return [this.paintOverlay, this.pipOverlay];
+    // Only overlays currently attached to a video element render anything --
+    // an overlay nobody is watching (self-view not promoted to Main, PiP
+    // never opened) must not be fed cursor/stroke state, or its internal
+    // Maps grow forever since pruning only happens inside the attached
+    // overlay's own requestAnimationFrame loop (see PaintOverlay._ensureLoop,
+    // which is a no-op while detached).
+    return [this.paintOverlay, this.pipOverlay].filter((overlay) => overlay.isAttached());
   }
 
   _updateSelfOverlay() {
@@ -387,7 +420,11 @@ export class Ui {
   }
 
   _setTile(key, stream, label, { hasError = false, autoPromote = true, peerId, streamId } = {}) {
-    this.tiles.set(key, { stream, label, hasError, peerId, streamId });
+    // If the paint DataChannel already reported 'open' for this peer/stream
+    // before this tile existed, seed the tile as open now instead of
+    // defaulting to undefined (see setPaintChannelOpen).
+    const paintChannelOpen = this._pendingPaintChannelOpen.delete(key) ? true : undefined;
+    this.tiles.set(key, { stream, label, hasError, peerId, streamId, paintChannelOpen });
     if (autoPromote && this.mainKey === null) {
       this._setMainKey(key);
       this._handleMouseActivity();
