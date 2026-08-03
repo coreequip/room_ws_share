@@ -327,8 +327,11 @@ export class Ui {
   }
 
   _setMainKey(key) {
-    this.mainKey = key;
+    // End any in-flight stroke against the CURRENT (old) mainKey before
+    // switching, so a mid-drag stroke-end is addressed to the peer who was
+    // actually receiving it, not to whichever tile becomes main next.
     if (this.paintModeActive) this._setPaintMode(false);
+    this.mainKey = key;
   }
 
   _handleThumbnailClick(key) {

@@ -3,7 +3,7 @@ import { detectLocale, createTranslator } from './i18n.js?v=0d97ad';
 import { generateRoomId, getRoomIdFromLocation, roomIdToHash } from './room-id.js?v=b0533e';
 import { Signaling } from './signaling.js?v=c727e9';
 import { PeerManager } from './peers.js?v=4b0a45';
-import { Ui } from './ui.js?v=755e20';
+import { Ui } from './ui.js?v=2d32b7';
 
 const COPY_FEEDBACK_MS = 2000;
 const STATS_POLL_MS = 1000;
