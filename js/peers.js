@@ -43,11 +43,11 @@ export class PeerManager {
   _wirePaintChannel(peerId, streamId, channel) {
     const key = `${peerId}:${streamId}`;
     this.paintChannels.set(key, channel);
-    channel.onopen = () => this.onPaintChannelStateChange(peerId, streamId, 'open');
-    channel.onclose = () => this.onPaintChannelStateChange(peerId, streamId, 'closed');
+    channel.onopen = () => this.onPaintChannelStateChange?.(peerId, streamId, 'open');
+    channel.onclose = () => this.onPaintChannelStateChange?.(peerId, streamId, 'closed');
     channel.onmessage = (event) => {
       const message = parsePaintMessage(event.data);
-      if (message) this.onPaintMessage(peerId, streamId, message);
+      if (message) this.onPaintMessage?.(peerId, streamId, message);
     };
   }
 
@@ -163,7 +163,7 @@ export class PeerManager {
       pc.close();
       this.onConnectionStateChange(peerId, streamId, 'closed');
       if (this.paintChannels.has(`${peerId}:${streamId}`)) {
-        this.onPaintChannelStateChange(peerId, streamId, 'closed');
+        this.onPaintChannelStateChange?.(peerId, streamId, 'closed');
       }
     }
     const prefix = `${peerId}:`;
@@ -190,7 +190,7 @@ export class PeerManager {
       streams.delete(streamId);
     }
     const key = `${peerId}:${streamId}`;
-    if (this.paintChannels.has(key)) this.onPaintChannelStateChange(peerId, streamId, 'closed');
+    if (this.paintChannels.has(key)) this.onPaintChannelStateChange?.(peerId, streamId, 'closed');
     this.pendingCandidates.delete(key);
     this.statsHistory.delete(key);
     this.paintChannels.delete(key);
