@@ -1,12 +1,17 @@
+import { parsePaintMessage } from './paint-protocol.js?v=daf61a';
+
 export class PeerManager {
-  constructor({ stunServers, signaling, onRemoteTrack, onConnectionStateChange }) {
+  constructor({ stunServers, signaling, onRemoteTrack, onConnectionStateChange, onPaintMessage, onPaintChannelStateChange }) {
     this.stunServers = stunServers;
     this.signaling = signaling;
     this.onRemoteTrack = onRemoteTrack;
     this.onConnectionStateChange = onConnectionStateChange;
+    this.onPaintMessage = onPaintMessage;
+    this.onPaintChannelStateChange = onPaintChannelStateChange;
     this.connections = new Map(); // peerId -> Map<streamId, RTCPeerConnection>
     this.pendingCandidates = new Map(); // `${peerId}:${streamId}` -> RTCIceCandidateInit[]
     this.statsHistory = new Map(); // `${peerId}:${streamId}` -> { bytes, timestamp } for bitrate deltas
+    this.paintChannels = new Map(); // `${peerId}:${streamId}` -> RTCDataChannel
 
     signaling.on('offer', ({ from, streamId, sdp }) => this._handleOffer(from, streamId, sdp));
     signaling.on('answer', ({ from, streamId, sdp }) => this._handleAnswer(from, streamId, sdp));
@@ -29,8 +34,26 @@ export class PeerManager {
     this.signaling.sendStop(streamId);
   }
 
+  sendPaint(peerId, streamId, message) {
+    const channel = this.paintChannels.get(`${peerId}:${streamId}`);
+    if (!channel || channel.readyState !== 'open') return;
+    channel.send(JSON.stringify(message));
+  }
+
+  _wirePaintChannel(peerId, streamId, channel) {
+    const key = `${peerId}:${streamId}`;
+    this.paintChannels.set(key, channel);
+    channel.onopen = () => this.onPaintChannelStateChange(peerId, streamId, 'open');
+    channel.onclose = () => this.onPaintChannelStateChange(peerId, streamId, 'closed');
+    channel.onmessage = (event) => {
+      const message = parsePaintMessage(event.data);
+      if (message) this.onPaintMessage(peerId, streamId, message);
+    };
+  }
+
   async _createOutgoing(peerId, streamId, stream) {
     const pc = this._createConnection(peerId, streamId);
+    this._wirePaintChannel(peerId, streamId, pc.createDataChannel('paint'));
     stream.getTracks().forEach((track) => {
       const sender = pc.addTrack(track, stream);
       if (track.kind === 'video') {
@@ -76,6 +99,7 @@ export class PeerManager {
 
   async _handleOffer(from, streamId, sdp) {
     const pc = this._createConnection(from, streamId);
+    pc.ondatachannel = (event) => this._wirePaintChannel(from, streamId, event.channel);
     try {
       await pc.setRemoteDescription(sdp);
       await this._flushCandidates(from, streamId, pc);
@@ -138,6 +162,9 @@ export class PeerManager {
     for (const [streamId, pc] of streams.entries()) {
       pc.close();
       this.onConnectionStateChange(peerId, streamId, 'closed');
+      if (this.paintChannels.has(`${peerId}:${streamId}`)) {
+        this.onPaintChannelStateChange(peerId, streamId, 'closed');
+      }
     }
     const prefix = `${peerId}:`;
     for (const key of this.pendingCandidates.keys()) {
@@ -145,6 +172,9 @@ export class PeerManager {
     }
     for (const key of this.statsHistory.keys()) {
       if (key.startsWith(prefix)) this.statsHistory.delete(key);
+    }
+    for (const key of this.paintChannels.keys()) {
+      if (key.startsWith(prefix)) this.paintChannels.delete(key);
     }
     this.connections.delete(peerId);
   }
@@ -159,8 +189,11 @@ export class PeerManager {
       }
       streams.delete(streamId);
     }
-    this.pendingCandidates.delete(`${peerId}:${streamId}`);
-    this.statsHistory.delete(`${peerId}:${streamId}`);
+    const key = `${peerId}:${streamId}`;
+    if (this.paintChannels.has(key)) this.onPaintChannelStateChange(peerId, streamId, 'closed');
+    this.pendingCandidates.delete(key);
+    this.statsHistory.delete(key);
+    this.paintChannels.delete(key);
   }
 
   _createConnection(peerId, streamId) {

@@ -2,7 +2,7 @@ import { config } from './config.js?v=04d282';
 import { detectLocale, createTranslator } from './i18n.js?v=c240a9';
 import { generateRoomId, getRoomIdFromLocation, roomIdToHash } from './room-id.js?v=b0533e';
 import { Signaling } from './signaling.js?v=c727e9';
-import { PeerManager } from './peers.js?v=ea0067';
+import { PeerManager } from './peers.js?v=e33a0b';
 import { Ui } from './ui.js?v=a80a02';
 
 const COPY_FEEDBACK_MS = 2000;
