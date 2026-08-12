@@ -1,4 +1,11 @@
-import { parsePaintMessage } from './paint-protocol.js?v=daf61a';
+import { parsePaintMessage, withPeer } from './paint-protocol.js?v=c25ffc';
+
+// paintChannels keys are `${peerId}:${streamId}`; split on the first colon
+// only, since a streamId is itself `${clientId}-${timestamp}`.
+function splitChannelKey(key) {
+  const separator = key.indexOf(':');
+  return [key.slice(0, separator), key.slice(separator + 1)];
+}
 
 export class PeerManager {
   constructor({ stunServers, signaling, onRemoteTrack, onConnectionStateChange, onPaintMessage, onPaintChannelStateChange }) {
@@ -38,6 +45,20 @@ export class PeerManager {
     const channel = this.paintChannels.get(`${peerId}:${streamId}`);
     if (!channel || channel.readyState !== 'open') return;
     channel.send(JSON.stringify(message));
+  }
+
+  // Relays a paint message the sharer received from one viewer on to every
+  // other viewer of the same stream, so everyone sees the same overlay the
+  // sharer does. The author is skipped -- it already rendered the message
+  // locally the moment it drew it, and echoing it back would double-render.
+  broadcastPaint(streamId, originPeerId, message) {
+    const payload = JSON.stringify(withPeer(message, originPeerId));
+    for (const [key, channel] of this.paintChannels) {
+      const [peerId, channelStreamId] = splitChannelKey(key);
+      if (channelStreamId !== streamId || peerId === originPeerId) continue;
+      if (channel.readyState !== 'open') continue;
+      channel.send(payload);
+    }
   }
 
   _wirePaintChannel(peerId, streamId, channel) {

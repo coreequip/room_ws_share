@@ -1,7 +1,7 @@
 import { icons } from './icons.js?v=b0f4a7';
 import { computeVideoContentRect, pointToNormalized } from './paint-geometry.js?v=480280';
-import { generateStrokeId, makeCursor, makeStrokeStart, makeStrokePoint, makeStrokeEnd } from './paint-protocol.js?v=daf61a';
-import { PaintOverlay } from './paint-canvas.js?v=69c86b';
+import { generateStrokeId, makeCursor, makeStrokeStart, makeStrokePoint, makeStrokeEnd, makeCursorLeave } from './paint-protocol.js?v=c25ffc';
+import { PaintOverlay } from './paint-canvas.js?v=7c9062';
 
 const SELF_KEY = 'self:local';
 const IDLE_HIDE_DELAY_MS = 2500;
@@ -25,7 +25,6 @@ export class Ui {
     this.bitrateSamples = [];
     this.paintOverlay = new PaintOverlay();
     this.pipOverlay = new PaintOverlay(); // attached in Task 9, kept here so handlePaintMessage/removePaintPeer stay stable
-    this._selfOverlayAttached = false;
     this._paintPeerIds = new Set(); // peerIds we've ever received a paint message from -- NOT this.tiles, because a
     // pure viewer (never shares media back to us) sends paint messages but never gets a video tile via addRemoteTrack
     this._pendingPaintChannelOpen = new Set(); // `${peerId}:${streamId}` keys whose paint DataChannel already
@@ -198,8 +197,14 @@ export class Ui {
     this.statusEl.textContent = text;
   }
 
-  showLocalPreview(stream) {
-    this._setTile(SELF_KEY, stream, this.t('youLabel'), { autoPromote: false });
+  showLocalPreview(stream, streamId) {
+    // streamId is carried on the self tile so the paint overlay can bind to it
+    // the same way it binds to a remote tile's stream (see _updateStageOverlay).
+    this._setTile(SELF_KEY, stream, this.t('youLabel'), { autoPromote: false, streamId });
+  }
+
+  setLocalPeerId(peerId) {
+    this.localPeerId = peerId;
   }
 
   removeLocalPreview() {
@@ -298,6 +303,10 @@ export class Ui {
       this.stageVideo.removeEventListener('mouseup', this._paintMouseUpHandler);
       this.stageVideo.removeEventListener('mouseleave', this._paintMouseUpHandler);
       this._endPaintStroke();
+      // Cursors don't fade on their own the way strokes do (see
+      // PaintOverlay._prune), so without this the sharer keeps rendering our
+      // last-known cursor position forever after we leave paint mode.
+      this._emitPaintEvent(makeCursorLeave());
     }
   }
 
@@ -308,53 +317,68 @@ export class Ui {
     if (!mainTile && this.paintModeActive) this._setPaintMode(false);
   }
 
-  handlePaintMessage(peerId, message) {
-    this._paintPeerIds.add(peerId);
-    for (const overlay of this._paintOverlays()) {
-      if (message.type === 'cursor') overlay.setCursor(peerId, message.x, message.y);
-      else if (message.type === 'stroke-start') overlay.startStroke(peerId, message.id, message.x, message.y);
-      else if (message.type === 'stroke-point') overlay.addStrokePoint(peerId, message.id, message.x, message.y);
-      else if (message.type === 'stroke-end') overlay.endStroke(peerId, message.id);
+  handlePaintMessage(peerId, streamId, message) {
+    // On a relayed message `peer` names the viewer who actually drew it; peerId
+    // is only the channel it arrived on (the sharer). Falling back to peerId
+    // covers the direct viewer -> sharer hop, which carries no `peer` field.
+    const originPeerId = message.peer ?? peerId;
+    this._paintPeerIds.add(originPeerId);
+    this._renderPaint(originPeerId, streamId, message);
+  }
+
+  _renderPaint(originPeerId, streamId, message) {
+    for (const overlay of this._paintOverlays(streamId)) {
+      if (message.type === 'cursor') overlay.setCursor(originPeerId, message.x, message.y);
+      else if (message.type === 'cursor-leave') overlay.removeCursor(originPeerId);
+      else if (message.type === 'stroke-start') overlay.startStroke(originPeerId, message.id, message.x, message.y);
+      else if (message.type === 'stroke-point') overlay.addStrokePoint(originPeerId, message.id, message.x, message.y);
+      else if (message.type === 'stroke-end') overlay.endStroke(originPeerId, message.id);
     }
   }
 
   removePaintPeer(peerId) {
+    // Deliberately NOT stream-scoped: a peer that dropped is gone from every
+    // stream at once, so wipe it from both overlays regardless of what they
+    // are currently showing.
     this._paintPeerIds.delete(peerId);
-    for (const overlay of this._paintOverlays()) overlay.removePeer(peerId);
+    for (const overlay of [this.paintOverlay, this.pipOverlay]) overlay.removePeer(peerId);
   }
 
-  _paintOverlays() {
-    // Only overlays currently attached to a video element render anything --
-    // an overlay nobody is watching (self-view not promoted to Main, PiP
-    // never opened) must not be fed cursor/stroke state, or its internal
-    // Maps grow forever since pruning only happens inside the attached
-    // overlay's own requestAnimationFrame loop (see PaintOverlay._ensureLoop,
-    // which is a no-op while detached).
-    return [this.paintOverlay, this.pipOverlay].filter((overlay) => overlay.isAttached());
+  _paintOverlays(streamId) {
+    // Only overlays currently showing THIS stream render anything -- an
+    // overlay nobody is watching (self-view not promoted to Main, PiP never
+    // opened) must not be fed cursor/stroke state, or its internal Maps grow
+    // forever since pruning only happens inside the attached overlay's own
+    // requestAnimationFrame loop (see PaintOverlay._ensureLoop, which is a
+    // no-op while detached).
+    return [this.paintOverlay, this.pipOverlay].filter((overlay) => overlay.handles(streamId));
   }
 
-  _updateSelfOverlay() {
-    if (this.mainKey === SELF_KEY) {
-      if (!this._selfOverlayAttached) {
-        this.paintOverlay.attach(this.stageVideo, this.stageEl);
-        this._selfOverlayAttached = true;
-      }
-    } else if (this._selfOverlayAttached) {
+  _updateStageOverlay() {
+    // The stage overlay follows whatever stream is currently main -- the own
+    // feed when it's promoted (sharer watching viewers point at their screen)
+    // or a remote feed (viewer seeing everyone's strokes on the shared
+    // screen). Receiving is deliberately independent of paint mode: passive
+    // watchers should see what is being pointed at.
+    const mainTile = this.mainKey !== null ? this.tiles.get(this.mainKey) : null;
+    const streamId = mainTile?.streamId ?? null;
+    if (streamId !== null && this.paintOverlay.handles(streamId)) return;
+
+    if (this.paintOverlay.isAttached()) {
       // Clear any stale per-peer cursor/stroke state before detaching, so a
-      // later re-attach (re-promoting self) starts clean instead of
-      // momentarily redrawing a peer's last-known position from before this
-      // detach (PaintOverlay.detach() itself doesn't clear its maps, and
-      // cursors in particular never expire on their own). Iterate
-      // _paintPeerIds rather than this.tiles: a pure viewer (never shares
-      // media back to us) sends paint messages but never gets a video tile,
-      // so it wouldn't be found by scanning tiles.
+      // later re-attach starts clean instead of momentarily redrawing a peer's
+      // last-known position from before this detach (PaintOverlay.detach()
+      // itself doesn't clear its maps, and cursors in particular never expire
+      // on their own). Iterate _paintPeerIds rather than this.tiles: a pure
+      // viewer (never shares media back to us) sends paint messages but never
+      // gets a video tile, so it wouldn't be found by scanning tiles.
       for (const peerId of this._paintPeerIds) this.paintOverlay.removePeer(peerId);
       this.paintOverlay.detach();
-      this._selfOverlayAttached = false;
     }
+    if (streamId !== null) this.paintOverlay.attach(this.stageVideo, this.stageEl, streamId);
   }
 
-  async _togglePip(stream) {
+  async _togglePip(stream, streamId) {
     if (this._pipWindow) {
       this._pipWindow.close();
       return;
@@ -382,7 +406,7 @@ export class Ui {
     video.style.cssText = 'width:100%;height:100%;display:block;object-fit:contain;';
     pipWindow.document.body.style.cssText = 'margin:0;background:#000;position:relative;';
     pipWindow.document.body.append(video);
-    this.pipOverlay.attach(video, pipWindow.document.body);
+    this.pipOverlay.attach(video, pipWindow.document.body, streamId);
     pipWindow.addEventListener('pagehide', () => {
       this.pipOverlay.detach();
       this._pipWindow = null;
@@ -417,6 +441,11 @@ export class Ui {
     const mainTile = this.tiles.get(this.mainKey);
     if (!mainTile || mainTile.peerId === undefined) return;
     this._onPaintPointerEvent(mainTile.peerId, mainTile.streamId, message);
+    // Render our own strokes locally rather than waiting for them to come back
+    // off the wire: drawing has to feel immediate. The sharer excludes the
+    // author when relaying (see PeerManager.broadcastPaint), so this doesn't
+    // double up.
+    if (this.localPeerId) this._renderPaint(this.localPeerId, mainTile.streamId, message);
   }
 
   _setTile(key, stream, label, { hasError = false, autoPromote = true, peerId, streamId } = {}) {
@@ -512,7 +541,7 @@ export class Ui {
 
   _render() {
     this.stageEl.classList.toggle('is-empty', this.mainKey === null);
-    this._updateSelfOverlay();
+    this._updateStageOverlay();
     if (this.mainKey !== null) {
       const main = this.tiles.get(this.mainKey);
       this.stageVideo.style.display = '';
@@ -550,7 +579,7 @@ export class Ui {
         pipButton.title = this.t('pipLabel');
         pipButton.addEventListener('click', (event) => {
           event.stopPropagation();
-          this._togglePip(tile.stream);
+          this._togglePip(tile.stream, tile.streamId);
         });
         container.append(pipButton);
       }

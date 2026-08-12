@@ -2,8 +2,9 @@ import { config } from './config.js?v=04d282';
 import { detectLocale, createTranslator } from './i18n.js?v=0d97ad';
 import { generateRoomId, getRoomIdFromLocation, roomIdToHash } from './room-id.js?v=b0533e';
 import { Signaling } from './signaling.js?v=c727e9';
-import { PeerManager } from './peers.js?v=4b0a45';
-import { Ui } from './ui.js?v=95a27d';
+import { PeerManager } from './peers.js?v=48886d';
+import { Ui } from './ui.js?v=69141b';
+import { makeCursorLeave } from './paint-protocol.js?v=c25ffc';
 
 const COPY_FEEDBACK_MS = 2000;
 const STATS_POLL_MS = 1000;
@@ -88,6 +89,7 @@ function main() {
     }
     connectionFailed = false;
     if (signaling) signaling.clientId = drone.clientId;
+    ui.setLocalPeerId(drone.clientId);
     if (initialized) {
       ui.setStatus(t('statusWaitingForShare'));
       return;
@@ -107,9 +109,21 @@ function main() {
         if (state === 'closed' || state === 'disconnected') {
           ui.removeTile(peerId, streamId);
           ui.removePaintPeer(peerId);
+          // A viewer that closed its tab never got to send its own
+          // cursor-leave, and the other viewers have no connection to it to
+          // notice. As the hub, tell them on its behalf -- otherwise its
+          // cursor sticks on their overlay forever (cursors never fade).
+          if (streamId === localStreamId) peers.broadcastPaint(streamId, peerId, makeCursorLeave());
         }
       },
-      onPaintMessage: (peerId, streamId, message) => ui.handlePaintMessage(peerId, message),
+      onPaintMessage: (peerId, streamId, message) => {
+        ui.handlePaintMessage(peerId, streamId, message);
+        // Only the sharer of this stream relays: viewers have no DataChannel
+        // to each other, so the sharer is the hub that lets every viewer see
+        // what the others are drawing. On a viewer, streamId never matches
+        // localStreamId, so broadcastPaint is not reached.
+        if (streamId === localStreamId) peers.broadcastPaint(streamId, peerId, message);
+      },
       onPaintChannelStateChange: (peerId, streamId, state) => ui.setPaintChannelOpen(peerId, streamId, state === 'open'),
     });
 
@@ -152,7 +166,7 @@ function main() {
     const videoTrack = localStream.getVideoTracks()[0];
     videoTrack.contentHint = 'text';
     videoTrack.addEventListener('ended', () => stopSharing());
-    ui.showLocalPreview(localStream);
+    ui.showLocalPreview(localStream, localStreamId);
     ui.setSharing(true);
     sharingBusy = false;
     ui.setShareBusy(false);
