@@ -74,3 +74,47 @@
 .info-row .info-row-label {
   color: rgba(255, 255, 255, 0.6);
 }
+
+.modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.info-events {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 10px;
+  margin-top: 10px;
+}
+
+.info-events h3 {
+  font-size: 0.95em;
+  margin: 0 0 6px;
+}
+
+.info-event-list {
+  max-height: 180px;
+  overflow-y: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85em;
+  line-height: 1.5;
+}
+
+.info-event {
+  display: flex;
+  gap: 8px;
+}
+
+.info-event-time {
+  color: rgba(255, 255, 255, 0.5);
+  flex-shrink: 0;
+}
+
+.info-event.is-bad {
+  color: #ff9b8a;
+}
+
+.info-recoveries {
+  color: rgba(255, 255, 255, 0.6);
+  margin: 0 0 10px;
+}

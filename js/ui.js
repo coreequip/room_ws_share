@@ -12,7 +12,7 @@ const SPARKLINE_MAX_SAMPLES = 20;
 const SPARKLINE_SMOOTHING = 0.3;
 
 export class Ui {
-  constructor({ root, t, onShareClick, onCopyLinkClick, onFullscreenClick, onZoomClick, onPaintClick, onPaintPointerEvent, onInfoClick, onInfoModalClose }) {
+  constructor({ root, t, onShareClick, onCopyLinkClick, onFullscreenClick, onZoomClick, onPaintClick, onPaintPointerEvent, onInfoClick, onInfoCopyClick, onInfoModalClose }) {
     this.root = root;
     this.t = t;
     this._onPaintPointerEvent = onPaintPointerEvent;
@@ -54,6 +54,7 @@ export class Ui {
     this.infoModalBackdrop = root.querySelector('[data-role="info-modal-backdrop"]');
     this.infoModalTitleEl = root.querySelector('[data-role="info-modal-title"]');
     this.infoModalBody = root.querySelector('[data-role="info-modal-body"]');
+    this.infoCopyButton = root.querySelector('[data-role="info-copy-button"]');
     this.infoModalCloseButton = root.querySelector('[data-role="info-modal-close"]');
     this.memberWidgetCountEl = root.querySelector('[data-role="member-widget-count"]');
     this.memberWidgetStatusEl = root.querySelector('[data-role="member-widget-status"]');
@@ -72,6 +73,7 @@ export class Ui {
     this.infoButton.innerHTML = icons.info;
     this.infoButton.title = this.t('infoLabel');
     this.infoModalTitleEl.textContent = this.t('infoLabel');
+    this.infoCopyButton.textContent = this.t('infoCopy');
     this.infoModalCloseButton.title = this.t('infoClose');
     this.memberWidgetCountEl.textContent = '–';
     this.memberWidgetStatusEl.textContent = this.t('memberWidgetNoShare');
@@ -83,6 +85,7 @@ export class Ui {
     this.zoomButton.addEventListener('click', onZoomClick);
     this.paintButton.addEventListener('click', onPaintClick);
     this.infoButton.addEventListener('click', onInfoClick);
+    this.infoCopyButton.addEventListener('click', onInfoCopyClick);
     this.infoModalCloseButton.addEventListener('click', onInfoModalClose);
     this.infoModalBackdrop.addEventListener('click', (event) => {
       if (event.target === this.infoModalBackdrop) onInfoModalClose();
@@ -124,6 +127,10 @@ export class Ui {
 
   setInfoContent(html) {
     this.infoModalBody.innerHTML = html;
+  }
+
+  setInfoCopied(isCopied) {
+    this.infoCopyButton.textContent = isCopied ? this.t('infoCopied') : this.t('infoCopy');
   }
 
   setMemberCount(count) {

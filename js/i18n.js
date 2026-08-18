@@ -35,6 +35,13 @@ const strings = {
     infoQualityCpu: 'CPU',
     infoQualityBandwidth: 'Bandbreite',
     infoQualityOther: 'Sonstige',
+    infoRecoveries: (count) => (count === 0
+      ? 'Bisher keine Unterbrechung.'
+      : `Verbindung ${count}× automatisch wiederhergestellt.`),
+    infoEventsTitle: 'Ereignisse',
+    infoNoEvents: 'Noch keine Ereignisse.',
+    infoCopy: 'Diagnose kopieren',
+    infoCopied: 'Kopiert!',
     memberCountText: (count) => `${count} Benutzer`,
     memberWidgetNoShare: 'Keine Freigabe',
     memberWidgetBitrate: (kbps) => `${kbps} kbps`,
@@ -77,6 +84,13 @@ const strings = {
     infoQualityCpu: 'CPU',
     infoQualityBandwidth: 'Bandwidth',
     infoQualityOther: 'Other',
+    infoRecoveries: (count) => (count === 0
+      ? 'No interruption so far.'
+      : `Connection restored automatically ${count}×.`),
+    infoEventsTitle: 'Events',
+    infoNoEvents: 'No events yet.',
+    infoCopy: 'Copy diagnostics',
+    infoCopied: 'Copied!',
     memberCountText: (count) => `${count} user${count === 1 ? '' : 's'}`,
     memberWidgetNoShare: 'No active share',
     memberWidgetBitrate: (kbps) => `${kbps} kbps`,

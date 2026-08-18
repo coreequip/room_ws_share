@@ -18,10 +18,16 @@ export function makeStop(streamId) {
   return { type: 'share-stop', stream_id: streamId };
 }
 
+// Sent by a viewer whose stream broke: only the sharer holds the media track,
+// so only the sharer can build a fresh connection for it.
+export function makeRestart(to, streamId) {
+  return { type: 'share-restart', to, stream_id: streamId };
+}
+
 export function isAddressedTo(message, clientId) {
   return !!message && message.to === clientId;
 }
 
 export function isSignalingMessage(message) {
-  return !!message && ['share-offer', 'share-answer', 'share-ice', 'share-stop'].includes(message.type);
+  return !!message && ['share-offer', 'share-answer', 'share-ice', 'share-stop', 'share-restart'].includes(message.type);
 }

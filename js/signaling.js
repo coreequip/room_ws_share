@@ -1,10 +1,10 @@
-import { makeOffer, makeAnswer, makeIce, makeStop, isAddressedTo, isSignalingMessage } from './signaling-protocol.js?v=f51148';
+import { makeOffer, makeAnswer, makeIce, makeStop, makeRestart, isAddressedTo, isSignalingMessage } from './signaling-protocol.js?v=0008de';
 
 export class Signaling {
   constructor(room, clientId) {
     this.room = room;
     this.clientId = clientId;
-    this.listeners = { offer: [], answer: [], ice: [], stop: [], members: [], memberJoin: [], memberLeave: [] };
+    this.listeners = { offer: [], answer: [], ice: [], stop: [], restart: [], members: [], memberJoin: [], memberLeave: [] };
 
     room.on('message', (message, envelope) => {
       if (!isSignalingMessage(message)) return;
@@ -15,6 +15,7 @@ export class Signaling {
       else if (message.type === 'share-answer') this._emit('answer', { from, streamId: message.stream_id, sdp: message.sdp });
       else if (message.type === 'share-ice') this._emit('ice', { from, streamId: message.stream_id, candidate: message.candidate });
       else if (message.type === 'share-stop') this._emit('stop', { from, streamId: message.stream_id });
+      else if (message.type === 'share-restart') this._emit('restart', { from, streamId: message.stream_id });
     });
 
     room.on('members', (members) => this._emit('members', members));
@@ -44,6 +45,10 @@ export class Signaling {
 
   sendIce(to, streamId, candidate) {
     this.room.drone.publish({ room: this.room.name, message: makeIce(to, streamId, candidate), no_echo: true });
+  }
+
+  sendRestart(to, streamId) {
+    this.room.drone.publish({ room: this.room.name, message: makeRestart(to, streamId), no_echo: true });
   }
 
   sendStop(streamId) {

@@ -8,11 +8,12 @@ function splitChannelKey(key) {
 }
 
 export class PeerManager {
-  constructor({ stunServers, signaling, onRemoteTrack, onConnectionStateChange, onPaintMessage, onPaintChannelStateChange }) {
+  constructor({ stunServers, signaling, onRemoteTrack, onConnectionStateChange, onTrackMuteChange, onPaintMessage, onPaintChannelStateChange }) {
     this.stunServers = stunServers;
     this.signaling = signaling;
     this.onRemoteTrack = onRemoteTrack;
     this.onConnectionStateChange = onConnectionStateChange;
+    this.onTrackMuteChange = onTrackMuteChange;
     this.onPaintMessage = onPaintMessage;
     this.onPaintChannelStateChange = onPaintChannelStateChange;
     this.connections = new Map(); // peerId -> Map<streamId, RTCPeerConnection>
@@ -154,11 +155,12 @@ export class PeerManager {
       this.pendingCandidates.set(key, queue);
       return;
     }
+    // A rejected candidate is survivable -- a rebuilt connection always sees a
+    // few stragglers from the one it replaced -- so the connection stays up.
     try {
       await pc.addIceCandidate(candidate);
     } catch (err) {
       console.error('PeerManager: failed to add ICE candidate', err);
-      this._cleanupConnection(from, streamId);
     }
   }
 
@@ -167,7 +169,11 @@ export class PeerManager {
     const queue = this.pendingCandidates.get(key) || [];
     this.pendingCandidates.delete(key);
     for (const candidate of queue) {
-      await pc.addIceCandidate(candidate);
+      try {
+        await pc.addIceCandidate(candidate);
+      } catch (err) {
+        console.error('PeerManager: failed to add buffered ICE candidate', err);
+      }
     }
   }
 
@@ -229,10 +235,21 @@ export class PeerManager {
     pc.onicecandidate = (event) => {
       if (event.candidate) this.signaling.sendIce(peerId, streamId, event.candidate);
     };
-    pc.ontrack = (event) => this.onRemoteTrack(peerId, streamId, event.streams[0]);
+    pc.ontrack = (event) => {
+      this._wireRemoteTrack(peerId, streamId, event.track);
+      this.onRemoteTrack(peerId, streamId, event.streams[0]);
+    };
     pc.onconnectionstatechange = () => this.onConnectionStateChange(peerId, streamId, pc.connectionState);
 
     return pc;
+  }
+
+  // A remote track reports 'mute' when the browser stops receiving media for
+  // it. The connection can stay 'connected' throughout, so this is the only
+  // signal that separates a frozen picture from a dead transport.
+  _wireRemoteTrack(peerId, streamId, track) {
+    track.addEventListener('mute', () => this.onTrackMuteChange?.(peerId, streamId, true));
+    track.addEventListener('unmute', () => this.onTrackMuteChange?.(peerId, streamId, false));
   }
 
   _getConnection(peerId, streamId) {
@@ -252,7 +269,7 @@ export class PeerManager {
 
   async _summarizeStats(peerId, streamId, pc) {
     const report = await pc.getStats();
-    const summary = { peerId, streamId, connectionState: pc.connectionState };
+    const summary = { peerId, streamId, connectionState: pc.connectionState, iceConnectionState: pc.iceConnectionState };
     let codecId = null;
     let localCandidateId = null;
     let remoteCandidateId = null;
@@ -266,6 +283,10 @@ export class PeerManager {
         summary.frameHeight = stat.frameHeight;
         summary.framesPerSecond = stat.framesPerSecond;
         summary.qualityLimitationReason = stat.qualityLimitationReason;
+        summary.frames = stat.framesEncoded;
+        summary.keyFrames = stat.keyFramesEncoded;
+        summary.pliCount = stat.pliCount;
+        summary.nackCount = stat.nackCount;
         codecId = stat.codecId;
         bytes = stat.bytesSent;
         timestamp = stat.timestamp;
@@ -276,6 +297,12 @@ export class PeerManager {
         summary.framesPerSecond = stat.framesPerSecond;
         summary.packetsLost = stat.packetsLost;
         summary.packetsReceived = stat.packetsReceived;
+        summary.frames = stat.framesDecoded;
+        summary.keyFrames = stat.keyFramesDecoded;
+        summary.freezeCount = stat.freezeCount;
+        summary.framesDropped = stat.framesDropped;
+        summary.pliCount = stat.pliCount;
+        summary.nackCount = stat.nackCount;
         codecId = stat.codecId;
         bytes = stat.bytesReceived;
         timestamp = stat.timestamp;
@@ -299,6 +326,7 @@ export class PeerManager {
     }
 
     const key = `${peerId}:${streamId}`;
+    if (bytes !== null) summary.bytes = bytes;
     if (bytes !== null && timestamp !== null) {
       const previous = this.statsHistory.get(key);
       if (previous) {

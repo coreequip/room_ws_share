@@ -78,3 +78,26 @@ test('members event is forwarded with the full member list', () => {
 
   assert.deepEqual(received, [['client-a', 'client-b', 'client-c']]);
 });
+
+test('Signaling emits "restart" only when a share-restart is addressed to the local client', () => {
+  const room = createFakeRoom();
+  const signaling = new Signaling(room, 'client-a');
+  const received = [];
+  signaling.on('restart', (payload) => received.push(payload));
+
+  room.emit('message', { type: 'share-restart', to: 'client-b', stream_id: 's1' }, { client_id: 'client-c' });
+  room.emit('message', { type: 'share-restart', to: 'client-a', stream_id: 's1' }, { client_id: 'client-c' });
+
+  assert.deepEqual(received, [{ from: 'client-c', streamId: 's1' }]);
+});
+
+test('sendRestart publishes an addressed share-restart message', () => {
+  const room = createFakeRoom();
+  const signaling = new Signaling(room, 'client-a');
+
+  signaling.sendRestart('client-b', 's1');
+
+  assert.deepEqual(room.drone.published, [
+    { room: 'room-1', message: { type: 'share-restart', to: 'client-b', stream_id: 's1' }, no_echo: true },
+  ]);
+});

@@ -69,5 +69,9 @@ open it in several browser tabs/profiles.
    Expected: Both streams disappear for all participants; with no remaining stream, the stage again shows the "Waiting for screen share…" status, and the controls stay permanently visible (no auto-hide without an active stream).
 9. Close Tab B.
    Expected: No errors in the console of Tab A/C/D.
-10. Language test: set the browser language to English (or simulate it via `navigator.language` in DevTools) and reload the page.
+10. Pull the network on the viewer side for about ten seconds (turn Wi-Fi off and on again, or kill the connection in the OS) while a stream is running.
+    Expected: The picture freezes on its last frame instead of disappearing. Within roughly 5-15 seconds it comes back on its own, without a reload — the viewer asks the sharer for a fresh offer (`share-restart`), the sharer answers it, and the tile is replaced by the new track. The info panel then reports "Connection restored automatically 1×" on both sides, and the event log holds the matching `recovery` line.
+11. In any tab, press `I` (or click the info button) while a stream is running.
+    Expected: The connection panel lists every connection with its codec, resolution, bitrate and packet loss, followed by an "Events" section with a timestamped log (connection state changes, joins/leaves, share start/stop, tab visibility, and any detected video stall). "Copy diagnostics" puts the full untranslated report — header, all connection fields, the whole event log — on the clipboard; the button briefly confirms with "Copied!".
+12. Language test: set the browser language to English (or simulate it via `navigator.language` in DevTools) and reload the page.
     Expected: Button labels, the warning notice, and status texts appear in English. With German as the browser language, they appear in German. With a third language (e.g. French), they appear in English (fallback).

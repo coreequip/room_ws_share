@@ -1,13 +1,19 @@
 import { config } from './config.js?v=04d282';
-import { detectLocale, createTranslator } from './i18n.js?v=0d97ad';
+import { detectLocale, createTranslator } from './i18n.js?v=4ce014';
 import { generateRoomId, getRoomIdFromLocation, roomIdToHash } from './room-id.js?v=b0533e';
-import { Signaling } from './signaling.js?v=c727e9';
-import { PeerManager } from './peers.js?v=48886d';
-import { Ui } from './ui.js?v=69141b';
+import { Signaling } from './signaling.js?v=f3d39f';
+import { PeerManager } from './peers.js?v=3e0aae';
+import { Ui } from './ui.js?v=17a6c1';
 import { makeCursorLeave } from './paint-protocol.js?v=c25ffc';
+import { EventLog, StreamHealthTracker, formatDiagnosticsReport, formatClock } from './diagnostics.js?v=95abf2';
+import { RecoveryPolicy } from './recovery.js?v=9d2586';
 
 const COPY_FEEDBACK_MS = 2000;
 const STATS_POLL_MS = 1000;
+const EVENT_DISPLAY_LIMIT = 15;
+// Values that mean something went wrong, highlighted in the event list so the
+// interesting line is findable at a glance.
+const BAD_EVENT_VALUES = new Set(['disconnected', 'failed', 'closed', 'stalled', 'silent', 'muted', 'offline', 'hidden', 'ended', 'error']);
 
 function resolveRoomId() {
   const existing = getRoomIdFromLocation(location.hash);
@@ -33,6 +39,13 @@ function main() {
   let statsInterval = null;
   let infoModalVisible = false;
   let lastStats = [];
+  // Purely observational: the log records what happened, nothing acts on it.
+  const eventLog = new EventLog();
+  const streamHealth = new StreamHealthTracker();
+  const recovery = new RecoveryPolicy();
+  const mutedTracks = new Set(); // `${peerId}:${streamId}` of remote tracks that report no incoming media
+  let recoveryCount = 0;
+  const shortId = (id) => (id ? String(id).slice(0, 8) : '?');
 
   const ui = new Ui({
     root: document,
@@ -44,11 +57,16 @@ function main() {
     onPaintClick: () => ui.togglePaintMode(),
     onPaintPointerEvent: (peerId, streamId, message) => peers.sendPaint(peerId, streamId, message),
     onInfoClick: () => toggleInfoModal(),
+    onInfoCopyClick: () => copyDiagnostics(),
     onInfoModalClose: () => closeInfoModal(),
   });
   ui.setConnecting(true);
   ui.setShareBusy(true);
   ui.setInfoBusy(true);
+
+  document.addEventListener('visibilitychange', () => eventLog.add('tab', { value: document.visibilityState }));
+  window.addEventListener('online', () => eventLog.add('network', { value: 'online' }));
+  window.addEventListener('offline', () => eventLog.add('network', { value: 'offline' }));
 
   document.addEventListener('keydown', (event) => {
     const key = event.key.toLowerCase();
@@ -82,6 +100,7 @@ function main() {
 
   drone.on('open', (error) => {
     ui.setConnecting(false);
+    eventLog.add('signaling', { value: error ? 'error' : 'open' });
     if (error) {
       connectionFailed = true;
       ui.setStatus(t('statusConnectError', error));
@@ -105,8 +124,15 @@ function main() {
       signaling,
       onRemoteTrack: (peerId, streamId, stream) => ui.addRemoteTrack(peerId, streamId, stream),
       onConnectionStateChange: (peerId, streamId, state) => {
+        eventLog.add('connection', { peer: shortId(peerId), stream: shortId(streamId), value: state });
         if (state === 'failed') ui.showConnectionFailed(peerId, streamId);
-        if (state === 'closed' || state === 'disconnected') {
+        // 'disconnected' is transient -- WebRTC recovers from it on its own,
+        // and if it doesn't, runRecovery() rebuilds the connection. Keeping the
+        // tile means the last frame freezes instead of the stream vanishing,
+        // and the rebuilt track replaces it. Only 'closed' is final: it is
+        // raised deliberately on share-stop, peer leave and cleanup.
+        if (state === 'closed') {
+          mutedTracks.delete(`${peerId}:${streamId}`);
           ui.removeTile(peerId, streamId);
           ui.removePaintPeer(peerId);
           // A viewer that closed its tab never got to send its own
@@ -115,6 +141,12 @@ function main() {
           // cursor sticks on their overlay forever (cursors never fade).
           if (streamId === localStreamId) peers.broadcastPaint(streamId, peerId, makeCursorLeave());
         }
+      },
+      onTrackMuteChange: (peerId, streamId, muted) => {
+        const key = `${peerId}:${streamId}`;
+        if (muted) mutedTracks.add(key);
+        else mutedTracks.delete(key);
+        eventLog.add('remote-video', { peer: shortId(peerId), stream: shortId(streamId), value: muted ? 'muted' : 'unmuted' });
       },
       onPaintMessage: (peerId, streamId, message) => {
         ui.handlePaintMessage(peerId, streamId, message);
@@ -129,7 +161,20 @@ function main() {
 
     signaling.on('members', (members) => ui.setMemberCount(members.length));
 
+    // A viewer whose picture broke asks us to offer the stream again. That is
+    // exactly what happens when it presses F5 -- it rejoins, and we send it a
+    // fresh offer -- only without the reload. The cooldown in the policy keeps
+    // several viewers asking at once from rebuilding more than once.
+    signaling.on('restart', ({ from, streamId }) => {
+      if (!localStream || streamId !== localStreamId) return;
+      if (!recovery.allow(from, streamId)) return;
+      recoveryCount += 1;
+      eventLog.add('recovery', { peer: shortId(from), value: 'rebuilt-on-request' });
+      peers.addLateJoiner(from, localStreamId, localStream);
+    });
+
     signaling.on('memberJoin', (peerId) => {
+      eventLog.add('member', { peer: shortId(peerId), value: 'join' });
       if (localStream && localStreamId) {
         peers.addLateJoiner(peerId, localStreamId, localStream);
       }
@@ -138,6 +183,7 @@ function main() {
     });
 
     signaling.on('memberLeave', (peerId) => {
+      eventLog.add('member', { peer: shortId(peerId), value: 'leave' });
       ui.setMemberCount(signaling.members.length);
       ui.showToast(t('memberLeft', peerId.slice(0, 8)));
     });
@@ -165,7 +211,16 @@ function main() {
     localStreamId = `${drone.clientId}-${Date.now()}`;
     const videoTrack = localStream.getVideoTracks()[0];
     videoTrack.contentHint = 'text';
-    videoTrack.addEventListener('ended', () => stopSharing());
+    // The capture itself can stall or be revoked by the OS without the peer
+    // connections noticing -- on the sharing side these are the events that
+    // explain a picture that stopped updating for everyone at once.
+    videoTrack.addEventListener('mute', () => eventLog.add('local-video', { value: 'muted' }));
+    videoTrack.addEventListener('unmute', () => eventLog.add('local-video', { value: 'unmuted' }));
+    videoTrack.addEventListener('ended', () => {
+      eventLog.add('local-video', { value: 'ended' });
+      stopSharing();
+    });
+    eventLog.add('share', { stream: shortId(localStreamId), value: 'started' });
     ui.showLocalPreview(localStream, localStreamId);
     ui.setSharing(true);
     sharingBusy = false;
@@ -175,6 +230,7 @@ function main() {
 
   function stopSharing() {
     if (!localStream) return;
+    eventLog.add('share', { stream: shortId(localStreamId), value: 'stopped' });
     localStream.getTracks().forEach((track) => track.stop());
     peers.stopSharing(localStreamId);
     ui.removeLocalPreview();
@@ -186,7 +242,7 @@ function main() {
   function toggleInfoModal() {
     infoModalVisible = !infoModalVisible;
     if (infoModalVisible) {
-      ui.setInfoContent(renderInfoHtml(lastStats, t));
+      ui.setInfoContent(renderInfoHtml(lastStats, eventLog.entries(), recoveryCount, t));
       ui.showInfoModal();
     } else {
       ui.hideInfoModal();
@@ -206,19 +262,82 @@ function main() {
 
   async function pollStats() {
     lastStats = peers ? await peers.getConnectionStats() : [];
+    for (const change of streamHealth.update(lastStats)) {
+      eventLog.add(change.direction === 'outbound' ? 'sending' : 'receiving', { peer: shortId(change.peerId), value: change.to });
+    }
+    runRecovery();
     if (lastStats.length === 0) {
       ui.setShareActivity(null);
     } else {
       const totalBitrateKbps = lastStats.reduce((sum, entry) => sum + (entry.bitrateKbps || 0), 0);
       ui.setShareActivity(totalBitrateKbps);
     }
-    if (infoModalVisible) ui.setInfoContent(renderInfoHtml(lastStats, t));
+    if (infoModalVisible) ui.setInfoContent(renderInfoHtml(lastStats, eventLog.entries(), recoveryCount, t));
+  }
+
+  // Only the side holding the media track can offer a connection, so a sharer
+  // rebuilds directly while a viewer has to ask the sharer to do it.
+  function runRecovery() {
+    if (!peers || !signaling) return;
+    const entries = lastStats.map((entry) => ({
+      peerId: entry.peerId,
+      streamId: entry.streamId,
+      healthy: entry.connectionState === 'connected'
+        && streamHealth.stateOf(entry.peerId, entry.streamId) === 'ok'
+        && !mutedTracks.has(`${entry.peerId}:${entry.streamId}`),
+    }));
+
+    for (const { peerId, streamId } of recovery.update(entries)) {
+      recoveryCount += 1;
+      if (streamId === localStreamId && localStream) {
+        eventLog.add('recovery', { peer: shortId(peerId), value: 'rebuilt' });
+        peers.addLateJoiner(peerId, localStreamId, localStream);
+      } else {
+        eventLog.add('recovery', { peer: shortId(peerId), value: 'requested' });
+        signaling.sendRestart(peerId, streamId);
+      }
+    }
+  }
+
+  function copyDiagnostics() {
+    const report = formatDiagnosticsReport({
+      events: eventLog.entries(),
+      stats: lastStats,
+      generatedAt: Date.now(),
+      userAgent: navigator.userAgent,
+      recoveries: recoveryCount,
+    });
+    navigator.clipboard.writeText(report);
+    ui.setInfoCopied(true);
+    setTimeout(() => ui.setInfoCopied(false), COPY_FEEDBACK_MS);
   }
 }
 
-function renderInfoHtml(stats, t) {
-  if (stats.length === 0) return `<p>${escapeHtml(t('infoNoConnections'))}</p>`;
-  return stats.map((entry) => renderConnectionInfo(entry, t)).join('');
+function renderInfoHtml(stats, events, recoveries, t) {
+  const summary = `<p class="info-recoveries">${escapeHtml(t('infoRecoveries', recoveries))}</p>`;
+  const connections = stats.length === 0
+    ? `<p>${escapeHtml(t('infoNoConnections'))}</p>`
+    : stats.map((entry) => renderConnectionInfo(entry, t)).join('');
+  return summary + connections + renderEventsHtml(events, t);
+}
+
+// Newest first: the panel re-renders every second, which resets the scroll
+// position, so whatever just happened has to be the line at the top.
+function renderEventsHtml(events, t) {
+  const heading = `<h3>${escapeHtml(t('infoEventsTitle'))}</h3>`;
+  if (events.length === 0) {
+    return `<div class="info-events">${heading}<p>${escapeHtml(t('infoNoEvents'))}</p></div>`;
+  }
+  const rows = events
+    .slice(-EVENT_DISPLAY_LIMIT)
+    .reverse()
+    .map((event) => {
+      const detail = Object.entries(event.detail).map(([key, value]) => `${key}=${value}`).join(' ');
+      const isBad = BAD_EVENT_VALUES.has(event.detail.value);
+      return `<div class="info-event${isBad ? ' is-bad' : ''}"><span class="info-event-time">${escapeHtml(formatClock(event.at))}</span><span>${escapeHtml(`${event.kind} ${detail}`.trim())}</span></div>`;
+    })
+    .join('');
+  return `<div class="info-events">${heading}<div class="info-event-list">${rows}</div></div>`;
 }
 
 function renderConnectionInfo(entry, t) {

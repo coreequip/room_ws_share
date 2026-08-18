@@ -6,6 +6,7 @@ import {
   makeAnswer,
   makeIce,
   makeStop,
+  makeRestart,
   isAddressedTo,
   isSignalingMessage,
 } from '../js/signaling-protocol.js';
@@ -44,4 +45,16 @@ test('isSignalingMessage recognizes known types and rejects everything else', ()
   assert.equal(isSignalingMessage(makeStop('stream-1')), true);
   assert.equal(isSignalingMessage({ type: 'members' }), false);
   assert.equal(isSignalingMessage(null), false);
+});
+
+// A viewer whose picture died cannot rebuild the connection itself -- only the
+// side holding the media track can offer one. This message is how it asks.
+test('makeRestart addresses the sharer of one specific stream', () => {
+  assert.deepEqual(makeRestart('peer-2', 'stream-1'), {
+    type: 'share-restart', to: 'peer-2', stream_id: 'stream-1',
+  });
+});
+
+test('isSignalingMessage recognizes share-restart', () => {
+  assert.equal(isSignalingMessage(makeRestart('peer-2', 'stream-1')), true);
 });
