@@ -1,12 +1,13 @@
 import { config } from './config.js?v=04d282';
-import { detectLocale, createTranslator } from './i18n.js?v=4ce014';
+import { detectLocale, createTranslator } from './i18n.js?v=071f0c';
 import { generateRoomId, getRoomIdFromLocation, roomIdToHash } from './room-id.js?v=b0533e';
 import { Signaling } from './signaling.js?v=f3d39f';
 import { PeerManager } from './peers.js?v=3e0aae';
-import { Ui } from './ui.js?v=17a6c1';
+import { Ui } from './ui.js?v=ccb9fd';
 import { makeCursorLeave } from './paint-protocol.js?v=c25ffc';
 import { EventLog, StreamHealthTracker, formatDiagnosticsReport, formatClock } from './diagnostics.js?v=95abf2';
 import { RecoveryPolicy } from './recovery.js?v=9d2586';
+import { ScreenshotStore, screenshotFileName } from './screenshot.js?v=88e50e';
 
 const COPY_FEEDBACK_MS = 2000;
 const STATS_POLL_MS = 1000;
@@ -43,6 +44,7 @@ function main() {
   const eventLog = new EventLog();
   const streamHealth = new StreamHealthTracker();
   const recovery = new RecoveryPolicy();
+  const screenshots = new ScreenshotStore();
   const mutedTracks = new Set(); // `${peerId}:${streamId}` of remote tracks that report no incoming media
   let recoveryCount = 0;
   const shortId = (id) => (id ? String(id).slice(0, 8) : '?');
@@ -56,6 +58,10 @@ function main() {
     onZoomClick: () => ui.toggleZoom(),
     onPaintClick: () => ui.togglePaintMode(),
     onPaintPointerEvent: (peerId, streamId, message) => peers.sendPaint(peerId, streamId, message),
+    onScreenshotClick: () => captureScreenshot(),
+    onScreenshotCopy: (item) => copyScreenshot(item),
+    onScreenshotDownload: (item) => downloadScreenshot(item),
+    onScreenshotRemove: (item) => removeScreenshot(item),
     onInfoClick: () => toggleInfoModal(),
     onInfoCopyClick: () => copyDiagnostics(),
     onInfoModalClose: () => closeInfoModal(),
@@ -68,9 +74,20 @@ function main() {
   window.addEventListener('online', () => eventLog.add('network', { value: 'online' }));
   window.addEventListener('offline', () => eventLog.add('network', { value: 'offline' }));
 
+  // Object URLs stay claimed until they are revoked; the browser tears the page
+  // down anyway, but this keeps the store honest about owning them.
+  window.addEventListener('pagehide', () => screenshots.clear());
+
   document.addEventListener('keydown', (event) => {
+    // Cmd/Ctrl/Alt combinations belong to the browser. Without this guard
+    // Cmd+C, Cmd+F and Cmd+P fire the local shortcuts as well.
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
     const key = event.key.toLowerCase();
-    if (key === 's') toggleSharing();
+    if (key === 's') {
+      if (event.shiftKey) captureScreenshot();
+      else toggleSharing();
+      return;
+    }
     if (key === 'c') copyLink();
     if (key === 'f') ui.toggleFullscreen();
     if (key === 'z') ui.toggleZoom();
@@ -87,6 +104,46 @@ function main() {
       closeInfoModal();
     }
   });
+
+  async function captureScreenshot() {
+    const shot = await ui.captureScreenshot();
+    if (!shot) {
+      ui.showToast(t('screenshotFailed'));
+      return;
+    }
+    const item = screenshots.add({
+      url: URL.createObjectURL(shot.blob),
+      thumbnailUrl: URL.createObjectURL(shot.thumbnail),
+      fileName: screenshotFileName(Date.now()),
+      blob: shot.blob,
+    });
+    ui.setScreenshots(screenshots.items());
+    copyScreenshot(item);
+  }
+
+  async function copyScreenshot(item) {
+    try {
+      if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) throw new Error('clipboard images unsupported');
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': item.blob })]);
+      ui.showToast(t('screenshotCopied'));
+    } catch {
+      // Older browsers and denied permissions end up here -- the film strip is
+      // the fallback, the image is not lost.
+      ui.showToast(t('screenshotStored'));
+    }
+  }
+
+  function downloadScreenshot(item) {
+    const link = document.createElement('a');
+    link.href = item.url;
+    link.download = item.fileName;
+    link.click();
+  }
+
+  function removeScreenshot(item) {
+    screenshots.remove(item.url);
+    ui.setScreenshots(screenshots.items());
+  }
 
   function copyLink() {
     navigator.clipboard.writeText(location.href);

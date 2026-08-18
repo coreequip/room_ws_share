@@ -1,21 +1,26 @@
-import { icons } from './icons.js?v=b0f4a7';
+import { icons } from './icons.js?v=df5e11';
 import { computeVideoContentRect, pointToNormalized } from './paint-geometry.js?v=480280';
 import { generateStrokeId, makeCursor, makeStrokeStart, makeStrokePoint, makeStrokeEnd, makeCursorLeave } from './paint-protocol.js?v=c25ffc';
-import { PaintOverlay } from './paint-canvas.js?v=7c9062';
+import { PaintOverlay } from './paint-canvas.js?v=1a266b';
+import { drawScreenshot } from './screenshot.js?v=88e50e';
 
 const SELF_KEY = 'self:local';
 const IDLE_HIDE_DELAY_MS = 2500;
 const TOAST_DURATION_MS = 3000;
+const THUMBNAIL_WIDTH = 160;
 const SPARKLINE_WIDTH = 60;
 const SPARKLINE_HEIGHT = 16;
 const SPARKLINE_MAX_SAMPLES = 20;
 const SPARKLINE_SMOOTHING = 0.3;
 
 export class Ui {
-  constructor({ root, t, onShareClick, onCopyLinkClick, onFullscreenClick, onZoomClick, onPaintClick, onPaintPointerEvent, onInfoClick, onInfoCopyClick, onInfoModalClose }) {
+  constructor({ root, t, onShareClick, onCopyLinkClick, onFullscreenClick, onZoomClick, onPaintClick, onPaintPointerEvent, onScreenshotClick, onScreenshotCopy, onScreenshotDownload, onScreenshotRemove, onInfoClick, onInfoCopyClick, onInfoModalClose }) {
     this.root = root;
     this.t = t;
     this._onPaintPointerEvent = onPaintPointerEvent;
+    this._onScreenshotCopy = onScreenshotCopy;
+    this._onScreenshotDownload = onScreenshotDownload;
+    this._onScreenshotRemove = onScreenshotRemove;
     this.tiles = new Map(); // key -> { stream, label, hasError, peerId, streamId }
     this.mainKey = null;
     this.selfPrevMainKey = null; // mainKey to restore when the self tile is un-promoted
@@ -50,6 +55,8 @@ export class Ui {
     this.fullscreenButton = root.querySelector('[data-role="fullscreen-button"]');
     this.zoomButton = root.querySelector('[data-role="zoom-button"]');
     this.paintButton = root.querySelector('[data-role="paint-button"]');
+    this.screenshotButton = root.querySelector('[data-role="screenshot-button"]');
+    this.filmStrip = root.querySelector('[data-role="film-strip"]');
     this.infoButton = root.querySelector('[data-role="info-button"]');
     this.infoModalBackdrop = root.querySelector('[data-role="info-modal-backdrop"]');
     this.infoModalTitleEl = root.querySelector('[data-role="info-modal-title"]');
@@ -70,6 +77,8 @@ export class Ui {
     this.zoomButton.title = this.t('zoomEnter');
     this.paintButton.innerHTML = icons.paint;
     this.paintButton.title = this.t('paintEnter');
+    this.screenshotButton.innerHTML = icons.screenshot;
+    this.screenshotButton.title = this.t('screenshotLabel');
     this.infoButton.innerHTML = icons.info;
     this.infoButton.title = this.t('infoLabel');
     this.infoModalTitleEl.textContent = this.t('infoLabel');
@@ -84,6 +93,7 @@ export class Ui {
     this.fullscreenButton.addEventListener('click', onFullscreenClick);
     this.zoomButton.addEventListener('click', onZoomClick);
     this.paintButton.addEventListener('click', onPaintClick);
+    this.screenshotButton.addEventListener('click', onScreenshotClick);
     this.infoButton.addEventListener('click', onInfoClick);
     this.infoCopyButton.addEventListener('click', onInfoCopyClick);
     this.infoModalCloseButton.addEventListener('click', onInfoModalClose);
@@ -315,6 +325,72 @@ export class Ui {
       // last-known cursor position forever after we leave paint mode.
       this._emitPaintEvent(makeCursorLeave());
     }
+  }
+
+  // Draws the stage video and the current drawing into a fresh canvas at the
+  // video's native resolution. Returns the full image and a thumbnail for the
+  // film strip, or null when there is nothing on the stage to capture.
+  async captureScreenshot() {
+    if (this.mainKey === null) return null;
+    const canvas = document.createElement('canvas');
+    const contentRect = computeVideoContentRect(this.stageVideo, this.stageEl.getBoundingClientRect());
+    const overlay = this.paintOverlay.isAttached() ? this.paintOverlay : null;
+    if (!drawScreenshot(canvas, this.stageVideo, overlay, { displayWidth: contentRect.width })) return null;
+
+    const [blob, thumbnail] = await Promise.all([canvasToBlob(canvas), canvasToBlob(this._thumbnailOf(canvas))]);
+    if (!blob || !thumbnail) return null;
+    return { blob, thumbnail };
+  }
+
+  setScreenshots(items) {
+    this.filmStrip.replaceChildren();
+    for (const item of items) {
+      const shot = document.createElement('div');
+      shot.className = 'film-shot';
+      shot.title = this.t('screenshotCopyAgain');
+      const image = document.createElement('img');
+      image.src = item.thumbnailUrl;
+      image.alt = item.fileName;
+
+      const actions = document.createElement('div');
+      actions.className = 'film-shot-actions';
+      const remove = this._filmStripAction(icons.close, this.t('screenshotRemove'), () => this._onScreenshotRemove(item));
+      remove.classList.add('film-shot-remove');
+      actions.append(
+        this._filmStripAction(icons.download, this.t('screenshotDownload'), () => this._onScreenshotDownload(item)),
+        remove,
+      );
+
+      shot.append(image, actions);
+      shot.addEventListener('click', () => this._onScreenshotCopy(item));
+      this.filmStrip.append(shot);
+    }
+  }
+
+  _filmStripAction(icon, title, onClick) {
+    const button = document.createElement('button');
+    button.className = 'film-shot-action';
+    button.innerHTML = icon;
+    button.title = title;
+    button.addEventListener('click', (event) => {
+      // Without this the click would fall through to the tile and copy the
+      // image as well.
+      event.stopPropagation();
+      onClick();
+    });
+    return button;
+  }
+
+  _thumbnailOf(source) {
+    const canvas = document.createElement('canvas');
+    canvas.width = THUMBNAIL_WIDTH;
+    canvas.height = Math.max(1, Math.round((source.height / source.width) * THUMBNAIL_WIDTH));
+    canvas.getContext('2d').drawImage(source, 0, 0, canvas.width, canvas.height);
+    return canvas;
+  }
+
+  _updateScreenshotButton() {
+    this.screenshotButton.classList.toggle('is-hidden', !this._mainTile());
   }
 
   _updatePaintButton() {
@@ -594,5 +670,10 @@ export class Ui {
       this.thumbnailRail.append(container);
     }
     this._updatePaintButton();
+    this._updateScreenshotButton();
   }
+}
+
+function canvasToBlob(canvas) {
+  return new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
 }

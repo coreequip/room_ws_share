@@ -123,54 +123,65 @@ export class PaintOverlay {
     this.canvas.height = rect.height;
     const contentRect = computeVideoContentRect(this.video, rect);
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    this.renderInto(this.ctx, contentRect, { alpha: this._currentAlpha(now) });
+  }
 
-    const alpha = this._currentAlpha(now);
-    for (const stroke of this.strokes.values()) {
-      if (alpha > 0) this._drawStroke(stroke, contentRect, alpha);
+  // Draws the current drawing into any context and any content rect: the
+  // overlay canvas on screen, or a screenshot canvas at the video's native
+  // resolution. `alpha` overrides the shared fade so a screenshot captures a
+  // drawing that is already fading at full opacity; `withCursors` is off for
+  // screenshots, where a live pointer position would only confuse.
+  renderInto(ctx, contentRect, { alpha = null, withCursors = true, scale = 1 } = {}) {
+    const effectiveAlpha = alpha ?? this._currentAlpha(performance.now());
+    if (effectiveAlpha > 0) {
+      for (const stroke of this.strokes.values()) {
+        this._drawStroke(stroke, contentRect, effectiveAlpha, ctx, scale);
+      }
     }
+    if (!withCursors) return;
     for (const [peerId, cursor] of this.cursors) {
-      this._drawCursor(peerId, cursor, contentRect);
+      this._drawCursor(peerId, cursor, contentRect, ctx, scale);
     }
   }
 
-  _drawStroke(stroke, contentRect, alpha) {
+  _drawStroke(stroke, contentRect, alpha, ctx = this.ctx, scale = 1) {
     // A path made of a single moveTo has zero length, and stroke() paints
     // nothing for it -- a click without a drag would leave no mark at all. Draw
     // that case as an explicit filled dot instead.
     if (stroke.points.length === 1) {
-      this._drawDot(stroke, contentRect, alpha);
+      this._drawDot(stroke, contentRect, alpha, ctx, scale);
       return;
     }
-    this.ctx.globalAlpha = alpha;
-    this.ctx.strokeStyle = colorForPeer(stroke.peerId);
-    this.ctx.lineWidth = STROKE_WIDTH;
-    this.ctx.lineCap = 'round';
-    this.ctx.lineJoin = 'round';
-    this.ctx.beginPath();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = colorForPeer(stroke.peerId);
+    ctx.lineWidth = STROKE_WIDTH * scale;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
     stroke.points.forEach((point, index) => {
       const { x, y } = normalizedToPoint(point.x, point.y, contentRect);
-      if (index === 0) this.ctx.moveTo(x, y);
-      else this.ctx.lineTo(x, y);
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
     });
-    this.ctx.stroke();
-    this.ctx.globalAlpha = 1;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
   }
 
-  _drawDot(stroke, contentRect, alpha) {
+  _drawDot(stroke, contentRect, alpha, ctx = this.ctx, scale = 1) {
     const { x, y } = normalizedToPoint(stroke.points[0].x, stroke.points[0].y, contentRect);
-    this.ctx.globalAlpha = alpha;
-    this.ctx.fillStyle = colorForPeer(stroke.peerId);
-    this.ctx.beginPath();
-    this.ctx.arc(x, y, STROKE_WIDTH / 2, 0, Math.PI * 2);
-    this.ctx.fill();
-    this.ctx.globalAlpha = 1;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = colorForPeer(stroke.peerId);
+    ctx.beginPath();
+    ctx.arc(x, y, (STROKE_WIDTH * scale) / 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
   }
 
-  _drawCursor(peerId, cursor, contentRect) {
+  _drawCursor(peerId, cursor, contentRect, ctx = this.ctx, scale = 1) {
     const { x, y } = normalizedToPoint(cursor.x, cursor.y, contentRect);
-    this.ctx.fillStyle = colorForPeer(peerId);
-    this.ctx.beginPath();
-    this.ctx.arc(x, y, CURSOR_RADIUS, 0, Math.PI * 2);
-    this.ctx.fill();
+    ctx.fillStyle = colorForPeer(peerId);
+    ctx.beginPath();
+    ctx.arc(x, y, CURSOR_RADIUS * scale, 0, Math.PI * 2);
+    ctx.fill();
   }
 }

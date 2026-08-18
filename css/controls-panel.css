@@ -47,3 +47,86 @@
   -webkit-user-select: none;
   -webkit-touch-callout: none;
 }
+
+.film-strip {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  max-width: min(420px, calc(50% - 32px));
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+.film-strip:empty {
+  display: none;
+}
+
+.film-shot {
+  position: relative;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  line-height: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: border-color .15s ease, transform .15s ease;
+}
+.film-shot:hover {
+  border-color: rgba(255, 255, 255, 0.4);
+  transform: translateY(-2px);
+}
+
+.film-shot img {
+  display: block;
+  height: 72px;
+  width: auto;
+}
+
+.film-shot-actions {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 4px;
+  opacity: 0;
+  pointer-events: none;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0) 60%);
+  transition: opacity .15s ease;
+}
+.film-shot:hover .film-shot-actions,
+.film-shot:focus-within .film-shot-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.film-shot-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  color: #eee;
+  background-color: rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+}
+.film-shot-action:hover {
+  background-color: rgba(0, 0, 0, 0.8);
+}
+.film-shot-action svg {
+  width: 14px;
+  height: 14px;
+}
+
+.film-shot-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}

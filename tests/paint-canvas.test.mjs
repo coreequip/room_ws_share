@@ -8,9 +8,11 @@ import assert from 'node:assert/strict';
 // this.video is null), so no requestAnimationFrame stub is needed.
 function recordingContext() {
   const calls = [];
+  const alphas = []; // every value assigned to globalAlpha, in order
   const record = (name) => (...args) => calls.push({ name, args });
-  return {
+  const ctx = {
     calls,
+    alphas,
     beginPath: record('beginPath'),
     moveTo: record('moveTo'),
     lineTo: record('lineTo'),
@@ -19,6 +21,11 @@ function recordingContext() {
     fill: record('fill'),
     clearRect: record('clearRect'),
   };
+  Object.defineProperty(ctx, 'globalAlpha', {
+    set(value) { alphas.push(value); },
+    get() { return alphas.length ? alphas[alphas.length - 1] : 1; },
+  });
+  return ctx;
 }
 
 globalThis.document = { createElement: () => ({ className: '', getContext: () => recordingContext() }) };
@@ -126,4 +133,77 @@ test('removeCursor leaves other peers cursors untouched', () => {
   overlay.removeCursor('peer-a');
 
   assert.equal(overlay.cursors.has('peer-b'), true);
+});
+
+// The screenshot draws the same strokes into a different canvas at the video's
+// native resolution, so the drawing logic has to work against any context and
+// any content rect -- not just the overlay's own.
+test('renderInto draws the strokes into a foreign context', () => {
+  const overlay = new PaintOverlay();
+  overlay.startStroke('peer-a', 's1', 0.1, 0.1);
+  overlay.addStrokePoint('peer-a', 's1', 0.9, 0.9);
+  const target = recordingContext();
+
+  overlay.renderInto(target, { x: 0, y: 0, width: 1920, height: 1080 }, { alpha: 1 });
+
+  const lineTo = target.calls.find((call) => call.name === 'lineTo');
+  assert.deepEqual(lineTo.args, [1728, 972]);
+  assert.equal(overlay.ctx.calls.length, 0);
+});
+
+test('renderInto honours the alpha override for strokes that were already fading', () => {
+  const overlay = new PaintOverlay();
+  overlay.startStroke('peer-a', 's1', 0, 0);
+  overlay.addStrokePoint('peer-a', 's1', 1, 1);
+  overlay.lastActivityAt = performance.now() - 5500; // half faded on screen
+  const target = recordingContext();
+
+  overlay.renderInto(target, { x: 0, y: 0, width: 100, height: 100 }, { alpha: 1 });
+
+  // Without the override this would have been drawn at ~0.5.
+  assert.equal(target.alphas[0], 1);
+});
+
+test('renderInto can leave the live cursors out', () => {
+  const overlay = new PaintOverlay();
+  overlay.setCursor('peer-a', 0.5, 0.5);
+  const target = recordingContext();
+
+  overlay.renderInto(target, { x: 0, y: 0, width: 100, height: 100 }, { alpha: 1, withCursors: false });
+
+  assert.equal(target.calls.some((call) => call.name === 'arc'), false);
+});
+
+test('renderInto draws the cursors when asked to', () => {
+  const overlay = new PaintOverlay();
+  overlay.setCursor('peer-a', 0.5, 0.5);
+  const target = recordingContext();
+
+  overlay.renderInto(target, { x: 0, y: 0, width: 100, height: 100 }, { alpha: 1 });
+
+  assert.equal(target.calls.some((call) => call.name === 'arc'), true);
+});
+
+// A 3px line looks right on a 1280px-wide stage and vanishes in a 2560px
+// screenshot. The stroke has to grow with the surface it is drawn on.
+test('renderInto scales the stroke width with the target surface', () => {
+  const overlay = new PaintOverlay();
+  overlay.startStroke('peer-a', 's1', 0, 0);
+  overlay.addStrokePoint('peer-a', 's1', 1, 1);
+  const target = recordingContext();
+
+  overlay.renderInto(target, { x: 0, y: 0, width: 2560, height: 1440 }, { alpha: 1, scale: 2 });
+
+  assert.equal(target.lineWidth, 6);
+});
+
+test('renderInto scales the cursor with the target surface', () => {
+  const overlay = new PaintOverlay();
+  overlay.setCursor('peer-a', 0.5, 0.5);
+  const target = recordingContext();
+
+  overlay.renderInto(target, { x: 0, y: 0, width: 2560, height: 1440 }, { alpha: 1, scale: 2 });
+
+  const arc = target.calls.find((call) => call.name === 'arc');
+  assert.equal(arc.args[2], 12); // cursor radius 6 at scale 1
 });
