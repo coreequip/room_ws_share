@@ -65,12 +65,27 @@
   display: none;
 }
 
+/* Sticks to the right edge of the scroll port, so it hints at more images
+   without moving with the content. */
+.film-strip.has-more::after {
+  content: '';
+  position: sticky;
+  right: 0;
+  flex: 0 0 auto;
+  align-self: stretch;
+  width: 32px;
+  margin-left: -32px;
+  border-radius: 0 6px 6px 0;
+  background: linear-gradient(to right, rgba(30, 32, 40, 0), rgba(30, 32, 40, 0.95));
+  pointer-events: none;
+}
+
 .film-shot {
   position: relative;
   flex: 0 0 auto;
   border-radius: 6px;
   overflow: hidden;
-  cursor: pointer;
+  cursor: zoom-in;
   line-height: 0;
   border: 1px solid rgba(255, 255, 255, 0.12);
   transition: border-color .15s ease, transform .15s ease;

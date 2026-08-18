@@ -1,9 +1,9 @@
 import { config } from './config.js?v=04d282';
-import { detectLocale, createTranslator } from './i18n.js?v=071f0c';
+import { detectLocale, createTranslator } from './i18n.js?v=bba4eb';
 import { generateRoomId, getRoomIdFromLocation, roomIdToHash } from './room-id.js?v=b0533e';
 import { Signaling } from './signaling.js?v=f3d39f';
 import { PeerManager } from './peers.js?v=3e0aae';
-import { Ui } from './ui.js?v=ccb9fd';
+import { Ui } from './ui.js?v=8ae899';
 import { makeCursorLeave } from './paint-protocol.js?v=c25ffc';
 import { EventLog, StreamHealthTracker, formatDiagnosticsReport, formatClock } from './diagnostics.js?v=95abf2';
 import { RecoveryPolicy } from './recovery.js?v=9d2586';
@@ -101,6 +101,7 @@ function main() {
       // interfere with Enter/Space activating a genuinely keyboard-focused
       // button).
       if (document.activeElement?.tagName === 'BUTTON') document.activeElement.blur();
+      ui.hideLightbox();
       closeInfoModal();
     }
   });

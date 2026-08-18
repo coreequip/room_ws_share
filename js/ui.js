@@ -1,4 +1,4 @@
-import { icons } from './icons.js?v=df5e11';
+import { icons } from './icons.js?v=d5ed2d';
 import { computeVideoContentRect, pointToNormalized } from './paint-geometry.js?v=480280';
 import { generateStrokeId, makeCursor, makeStrokeStart, makeStrokePoint, makeStrokeEnd, makeCursorLeave } from './paint-protocol.js?v=c25ffc';
 import { PaintOverlay } from './paint-canvas.js?v=1a266b';
@@ -37,6 +37,7 @@ export class Ui {
     // the track isn't guaranteed) -- consumed by _setTile so the tile starts with paintChannelOpen already true
     // instead of defaulting to undefined and permanently disabling the paint button for that peer.
     this.paintModeActive = false;
+    this._pointerOverFilmStrip = false;
     this._activePaintStrokeId = null;
     this._paintMouseMoveHandler = (event) => this._handlePaintMouseMove(event);
     this._paintMouseDownHandler = (event) => this._handlePaintMouseDown(event);
@@ -57,6 +58,8 @@ export class Ui {
     this.paintButton = root.querySelector('[data-role="paint-button"]');
     this.screenshotButton = root.querySelector('[data-role="screenshot-button"]');
     this.filmStrip = root.querySelector('[data-role="film-strip"]');
+    this.lightboxEl = root.querySelector('[data-role="lightbox"]');
+    this.lightboxImage = root.querySelector('[data-role="lightbox-image"]');
     this.infoButton = root.querySelector('[data-role="info-button"]');
     this.infoModalBackdrop = root.querySelector('[data-role="info-modal-backdrop"]');
     this.infoModalTitleEl = root.querySelector('[data-role="info-modal-title"]');
@@ -100,6 +103,28 @@ export class Ui {
     this.infoModalBackdrop.addEventListener('click', (event) => {
       if (event.target === this.infoModalBackdrop) onInfoModalClose();
     });
+
+    this.lightboxEl.addEventListener('click', () => this.hideLightbox());
+
+    // The strip lives inside the auto-hiding overlay. While the pointer rests
+    // on it -- scrolling through the shots, aiming for a button -- nothing may
+    // fade away underneath.
+    this.filmStrip.addEventListener('mouseenter', () => {
+      this._pointerOverFilmStrip = true;
+      this._handleMouseActivity();
+    });
+    this.filmStrip.addEventListener('mouseleave', () => {
+      this._pointerOverFilmStrip = false;
+      this._handleMouseActivity();
+    });
+    // A wheel reports vertical movement, which does nothing in a horizontal
+    // strip -- put it on the axis that actually moves.
+    this.filmStrip.addEventListener('wheel', (event) => {
+      if (event.deltaY === 0) return;
+      event.preventDefault();
+      this.filmStrip.scrollLeft += event.deltaY;
+    }, { passive: false });
+    this.filmStrip.addEventListener('scroll', () => this._updateFilmStripOverflow());
 
     document.addEventListener('fullscreenchange', () => {
       const isFullscreen = document.fullscreenElement === this.stageEl;
@@ -347,24 +372,46 @@ export class Ui {
     for (const item of items) {
       const shot = document.createElement('div');
       shot.className = 'film-shot';
-      shot.title = this.t('screenshotCopyAgain');
+      shot.title = this.t('screenshotEnlarge');
       const image = document.createElement('img');
       image.src = item.thumbnailUrl;
       image.alt = item.fileName;
+      // scrollWidth only tells the truth once the thumbnails have loaded.
+      image.addEventListener('load', () => this._updateFilmStripOverflow());
 
       const actions = document.createElement('div');
       actions.className = 'film-shot-actions';
       const remove = this._filmStripAction(icons.close, this.t('screenshotRemove'), () => this._onScreenshotRemove(item));
       remove.classList.add('film-shot-remove');
       actions.append(
+        this._filmStripAction(icons.copy, this.t('screenshotCopy'), () => this._onScreenshotCopy(item)),
         this._filmStripAction(icons.download, this.t('screenshotDownload'), () => this._onScreenshotDownload(item)),
         remove,
       );
 
       shot.append(image, actions);
-      shot.addEventListener('click', () => this._onScreenshotCopy(item));
+      shot.addEventListener('click', () => this.showLightbox(item));
       this.filmStrip.append(shot);
     }
+    this._updateFilmStripOverflow();
+  }
+
+  showLightbox(item) {
+    this.lightboxImage.src = item.url;
+    this.lightboxEl.classList.remove('is-hidden');
+  }
+
+  hideLightbox() {
+    if (this.lightboxEl.classList.contains('is-hidden')) return;
+    this.lightboxEl.classList.add('is-hidden');
+    // Drop the reference so a removed image can't linger in a hidden element.
+    this.lightboxImage.removeAttribute('src');
+    this._handleMouseActivity();
+  }
+
+  _updateFilmStripOverflow() {
+    const hidden = this.filmStrip.scrollWidth - this.filmStrip.clientWidth - this.filmStrip.scrollLeft;
+    this.filmStrip.classList.toggle('has-more', hidden > 1);
   }
 
   _filmStripAction(icon, title, onClick) {
@@ -616,7 +663,7 @@ export class Ui {
   _handleMouseActivity() {
     this.overlayEl.classList.remove('is-hidden');
     clearTimeout(this.idleTimer);
-    if (this.mainKey === null) return;
+    if (this.mainKey === null || this._pointerOverFilmStrip) return;
     this.idleTimer = setTimeout(() => {
       this.overlayEl.classList.add('is-hidden');
     }, IDLE_HIDE_DELAY_MS);
