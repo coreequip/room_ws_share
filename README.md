@@ -22,8 +22,13 @@ The most recently selected stream is shown large; additional concurrent
 streams appear as thumbnails and can be promoted to the main video with a
 click. Fullscreen via button or the `F` key.
 
-NAT traversal happens exclusively via public STUN servers (no TURN) —
-connections behind symmetric NAT/restrictive corporate networks may fail.
+NAT traversal starts with public STUN servers. Where that is not enough —
+symmetric NAT, or a corporate network that blocks UDP and allows nothing but
+outbound 443 — the page fetches short-lived credentials for a TURN relay from
+`https://live.room.ws/turn` and adds it to the ICE candidates. The relay is a
+convenience, not a requirement: if the endpoint is unreachable or switched off,
+sharing continues on STUN alone. Append `?turn=` to the URL to disable it for a
+comparison run.
 
 ## Local Development
 

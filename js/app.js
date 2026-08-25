@@ -1,8 +1,9 @@
-import { config } from './config.js?v=04d282';
+import { config } from './config.js?v=773889';
 import { detectLocale, createTranslator } from './i18n.js?v=bba4eb';
 import { generateRoomId, getRoomIdFromLocation, roomIdToHash } from './room-id.js?v=b0533e';
 import { Signaling } from './signaling.js?v=f3d39f';
-import { PeerManager } from './peers.js?v=3e0aae';
+import { PeerManager } from './peers.js?v=b4e802';
+import { IceServerProvider } from './turn.js?v=a5d206';
 import { Ui } from './ui.js?v=8ae899';
 import { makeCursorLeave } from './paint-protocol.js?v=c25ffc';
 import { EventLog, StreamHealthTracker, formatDiagnosticsReport, formatClock } from './diagnostics.js?v=95abf2';
@@ -177,8 +178,12 @@ function main() {
 
     const room = drone.subscribe(roomId);
     signaling = new Signaling(room, drone.clientId);
+    const iceServers = new IceServerProvider({
+      url: config.turnCredentialsUrl,
+      fallback: config.stunServers,
+    });
     peers = new PeerManager({
-      stunServers: config.stunServers,
+      resolveIceServers: () => iceServers.get(),
       signaling,
       onRemoteTrack: (peerId, streamId, stream) => ui.addRemoteTrack(peerId, streamId, stream),
       onConnectionStateChange: (peerId, streamId, state) => {

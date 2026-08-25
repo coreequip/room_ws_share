@@ -8,8 +8,8 @@ function splitChannelKey(key) {
 }
 
 export class PeerManager {
-  constructor({ stunServers, signaling, onRemoteTrack, onConnectionStateChange, onTrackMuteChange, onPaintMessage, onPaintChannelStateChange }) {
-    this.stunServers = stunServers;
+  constructor({ resolveIceServers, signaling, onRemoteTrack, onConnectionStateChange, onTrackMuteChange, onPaintMessage, onPaintChannelStateChange }) {
+    this.resolveIceServers = resolveIceServers;
     this.signaling = signaling;
     this.onRemoteTrack = onRemoteTrack;
     this.onConnectionStateChange = onConnectionStateChange;
@@ -74,7 +74,7 @@ export class PeerManager {
   }
 
   async _createOutgoing(peerId, streamId, stream) {
-    const pc = this._createConnection(peerId, streamId);
+    const pc = await this._createConnection(peerId, streamId);
     this._wirePaintChannel(peerId, streamId, pc.createDataChannel('paint'));
     stream.getTracks().forEach((track) => {
       const sender = pc.addTrack(track, stream);
@@ -120,7 +120,7 @@ export class PeerManager {
   }
 
   async _handleOffer(from, streamId, sdp) {
-    const pc = this._createConnection(from, streamId);
+    const pc = await this._createConnection(from, streamId);
     pc.ondatachannel = (event) => this._wirePaintChannel(from, streamId, event.channel);
     try {
       await pc.setRemoteDescription(sdp);
@@ -223,12 +223,15 @@ export class PeerManager {
     this.paintChannels.delete(key);
   }
 
-  _createConnection(peerId, streamId) {
+  // Resolved per connection rather than once at startup: TURN credentials
+  // expire, and a share started hours into a session needs fresh ones.
+  async _createConnection(peerId, streamId) {
+    const iceServers = await this.resolveIceServers();
     const existingStreams = this.connections.get(peerId);
     if (existingStreams && existingStreams.has(streamId)) {
       existingStreams.get(streamId).close();
     }
-    const pc = new RTCPeerConnection({ iceServers: this.stunServers });
+    const pc = new RTCPeerConnection({ iceServers });
     if (!this.connections.has(peerId)) this.connections.set(peerId, new Map());
     this.connections.get(peerId).set(streamId, pc);
 

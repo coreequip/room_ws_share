@@ -7,7 +7,7 @@ import { PeerManager } from '../js/peers.js';
 // signaling object and hand-placed fake channels are enough to test it.
 function makeManager(callbacks = {}) {
   const signaling = { on: () => {}, members: [], clientId: 'me' };
-  return new PeerManager({ stunServers: [], signaling, ...callbacks });
+  return new PeerManager({ resolveIceServers: async () => [], signaling, ...callbacks });
 }
 
 function fakeChannel(readyState = 'open') {
@@ -174,4 +174,42 @@ test('_flushCandidates applies the remaining candidates after one is rejected', 
   restore();
 
   assert.deepEqual(applied, ['good']);
+});
+
+// A minimal RTCPeerConnection stand-in: enough surface for _createOutgoing to
+// run through, and it records the configuration it was constructed with.
+function stubPeerConnection(configs) {
+  const original = globalThis.RTCPeerConnection;
+  globalThis.RTCPeerConnection = class {
+    constructor(config) { configs.push(config); }
+    createDataChannel() { return { readyState: 'connecting', send() {} }; }
+    addTrack() { return { getParameters: () => ({ encodings: [{}] }), setParameters: async () => {} }; }
+    getTransceivers() { return []; }
+    async createOffer() { return { type: 'offer' }; }
+    async setLocalDescription() {}
+    get localDescription() { return { type: 'offer' }; }
+    close() {}
+  };
+  return () => { globalThis.RTCPeerConnection = original; };
+}
+
+test('PeerManager builds connections with the ICE servers it resolves at connect time', async () => {
+  const configs = [];
+  const restore = stubPeerConnection(configs);
+  const iceServers = [
+    { urls: 'stun:stun.example:19302' },
+    { urls: ['turns:turn.room.ws:443?transport=tcp'], username: '999:abc', credential: 'sig' },
+  ];
+  const manager = new PeerManager({
+    resolveIceServers: async () => iceServers,
+    signaling: { on: () => {}, members: ['me', 'peer-1'], clientId: 'me', sendOffer: () => {} },
+  });
+
+  try {
+    await manager.startSharing({ getTracks: () => [] }, 'stream-1');
+    assert.equal(configs.length, 1);
+    assert.deepEqual(configs[0].iceServers, iceServers);
+  } finally {
+    restore();
+  }
 });
