@@ -26,6 +26,7 @@ export class Ui {
     this.selfPrevMainKey = null; // mainKey to restore when the self tile is un-promoted
     this.idleTimer = null;
     this.isZoomed = false;
+    this.isPanPaused = false;
     this.toastTimer = null;
     this.bitrateSamples = [];
     this.paintOverlay = new PaintOverlay();
@@ -288,6 +289,7 @@ export class Ui {
 
   toggleZoom() {
     this.isZoomed = !this.isZoomed;
+    this.isPanPaused = false;
     this.stageVideo.classList.toggle('is-zoomed', this.isZoomed);
     this.zoomButton.innerHTML = this.isZoomed ? icons.zoomExit : icons.zoomEnter;
     this.zoomButton.title = this.isZoomed ? this.t('zoomExit') : this.t('zoomEnter');
@@ -644,14 +646,24 @@ export class Ui {
 
   _resetZoom() {
     this.isZoomed = false;
+    this.isPanPaused = false;
     this.stageVideo.classList.remove('is-zoomed');
     this.stageVideo.style.objectPosition = '';
     this.zoomButton.innerHTML = icons.zoomEnter;
     this.zoomButton.title = this.t('zoomEnter');
   }
 
-  _handlePan(event) {
+  // Freezes the zoom on whatever it currently shows. Without this, reading
+  // anything in the zoomed image means holding the mouse perfectly still,
+  // because the cut follows every pixel of movement.
+  togglePanPause() {
     if (!this.isZoomed) return;
+    this.isPanPaused = !this.isPanPaused;
+    this.showToast(this.t(this.isPanPaused ? 'panPaused' : 'panResumed'));
+  }
+
+  _handlePan(event) {
+    if (!this.isZoomed || this.isPanPaused) return;
     const rect = this.stageEl.getBoundingClientRect();
     const percentX = ((event.clientX - rect.left) / rect.width) * 100;
     const percentY = ((event.clientY - rect.top) / rect.height) * 100;

@@ -1,10 +1,10 @@
 import { config } from './config.js?v=773889';
-import { detectLocale, createTranslator } from './i18n.js?v=bba4eb';
+import { detectLocale, createTranslator } from './i18n.js?v=9d4eb5';
 import { generateRoomId, getRoomIdFromLocation, roomIdToHash } from './room-id.js?v=b0533e';
 import { Signaling } from './signaling.js?v=f3d39f';
 import { PeerManager } from './peers.js?v=b4e802';
 import { IceServerProvider } from './turn.js?v=a5d206';
-import { Ui } from './ui.js?v=8ae899';
+import { Ui } from './ui.js?v=a815c9';
 import { makeCursorLeave } from './paint-protocol.js?v=c25ffc';
 import { EventLog, StreamHealthTracker, formatDiagnosticsReport, formatClock } from './diagnostics.js?v=95abf2';
 import { RecoveryPolicy } from './recovery.js?v=9d2586';
@@ -94,6 +94,15 @@ function main() {
     if (key === 'z') ui.toggleZoom();
     if (key === 'p') ui.togglePaintMode();
     if (key === 'i') toggleInfoModal();
+    if (key === ' ') {
+      // Space belongs to a focused button first -- taking it away would break
+      // keyboard operation of the toolbar. Otherwise it is ours, and the
+      // default has to go or the page scrolls underneath the stage.
+      if (ui.isZoomed && document.activeElement?.tagName !== 'BUTTON') {
+        event.preventDefault();
+        ui.togglePanPause();
+      }
+    }
     if (key === 'escape') {
       // A mouse click focuses the button in some browsers; pressing Escape
       // right after can make that stale focus suddenly render as
