@@ -2,6 +2,12 @@
 // connection started right at the boundary still gets a usable lifetime.
 const REFRESH_MARGIN_MS = 60000;
 
+// A request that never answers is worse than one that fails: the error path
+// never runs, so the STUN fallback never kicks in and every RTCPeerConnection
+// waits behind it. Three seconds is well above a healthy round trip and well
+// below what a stalled connection would otherwise cost.
+const FETCH_TIMEOUT_MS = 3000;
+
 // After a failed fetch the endpoint is left alone for a while. Without this a
 // room with several peers would fire one doomed request per connection attempt.
 const RETRY_COOLDOWN_MS = 30000;
@@ -11,11 +17,12 @@ const RETRY_COOLDOWN_MS = 30000;
 // endpoint is unset or unreachable, sharing continues on STUN alone -- degraded
 // for peers behind restrictive networks, unchanged for everyone else.
 export class IceServerProvider {
-  constructor({ url, fallback, fetchImpl = fetch, now = () => Date.now() }) {
+  constructor({ url, fallback, fetchImpl = fetch, now = () => Date.now(), timeoutMs = FETCH_TIMEOUT_MS }) {
     this.url = url;
     this.fallback = fallback;
     this.fetchImpl = fetchImpl;
     this.now = now;
+    this.timeoutMs = timeoutMs;
     this.cached = null;
     this.expiresAt = 0;
     this.retryAfter = 0;
@@ -33,8 +40,18 @@ export class IceServerProvider {
   }
 
   async _fetch() {
+    const controller = typeof AbortController === 'undefined' ? null : new AbortController();
+    let timer;
     try {
-      const response = await this.fetchImpl(this.url);
+      const response = await Promise.race([
+        this.fetchImpl(this.url, controller ? { signal: controller.signal } : undefined),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => {
+            controller?.abort();
+            reject(new Error(`TURN endpoint did not answer within ${this.timeoutMs}ms`));
+          }, this.timeoutMs);
+        }),
+      ]);
       if (!response.ok) throw new Error(`TURN endpoint returned ${response.status}`);
       const payload = await response.json();
       this.cached = [...this.fallback, ...payload.iceServers];
@@ -44,6 +61,8 @@ export class IceServerProvider {
       console.warn('IceServerProvider: no TURN credentials, continuing on STUN alone', err);
       this.retryAfter = this.now() + RETRY_COOLDOWN_MS;
       return this.fallback;
+    } finally {
+      clearTimeout(timer);
     }
   }
 }

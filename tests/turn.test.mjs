@@ -117,3 +117,16 @@ test('IceServerProvider issues a single request when several peers connect at on
   assert.equal(calls, 1);
   assert.deepEqual(a, b);
 });
+
+test('IceServerProvider gives up on a hanging endpoint instead of blocking the connection', async () => {
+  // A fetch that never settles is the dangerous case: it is not an error, so
+  // the error path never runs, and every RTCPeerConnection waits behind it.
+  const provider = new IceServerProvider({
+    url: 'https://live.example/turn',
+    fallback: FALLBACK,
+    fetchImpl: () => new Promise(() => {}),
+    timeoutMs: 20,
+  });
+
+  assert.deepEqual(await provider.get(), FALLBACK);
+});
