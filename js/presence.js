@@ -1,14 +1,17 @@
 export const NAME_MIN_LENGTH = 3;
-export const NAME_MAX_LENGTH = 24;
+// Whole name, spaces included, in code points: long enough for "Jan van der
+// Berg" or a double surname, short enough to fit one line of the member list.
+export const NAME_MAX_LENGTH = 32;
 
 export const BROWSERS = ['Brave', 'Edge', 'Opera', 'Vivaldi', 'Samsung Internet', 'Firefox', 'Chrome', 'Safari'];
 export const SYSTEMS = ['iOS', 'iPadOS', 'Android', 'ChromeOS', 'Windows', 'macOS', 'Linux'];
 export const UNKNOWN = '?';
 
-// A letter or decimal digit, optionally followed by combining marks -- scripts
-// like Devanagari need those. Emoji, whitespace, punctuation and symbols all
-// fall outside, which is the point: a name has to be something you can say.
-const NAME_RE = /^(?:[\p{L}\p{Nd}][\p{Mn}\p{Mc}]*)+$/u;
+// Words of letters or decimal digits, each optionally followed by combining
+// marks -- scripts like Devanagari need those -- separated by single spaces.
+// Emoji, punctuation and symbols all fall outside, which is the point: a name
+// has to be something you can say.
+const NAME_RE = /^(?:[\p{L}\p{Nd}][\p{Mn}\p{Mc}]*)+(?: (?:[\p{L}\p{Nd}][\p{Mn}\p{Mc}]*)+)*$/u;
 // Variation selectors are nonspacing marks too, and would otherwise let a
 // keycap emoji like "1" + U+FE0F + U+20E3 through as "digit plus mark".
 const VARIATION_SELECTOR_RE = /[\uFE00-\uFE0F\u{E0100}-\u{E01EF}]/u;
@@ -19,12 +22,14 @@ const BASE_CHAR_RE = /[\p{L}\p{Nd}]/gu;
 // input field would reject can reach the roster by bypassing the dialog.
 export function validateName(raw) {
   if (typeof raw !== 'string') return { ok: false, reason: 'nameTooShort' };
-  const name = raw.normalize('NFC').trim();
+  // Spaces are allowed between words only: the edges are trimmed and any run
+  // of whitespace inside, tabs included, becomes a single space.
+  const name = raw.normalize('NFC').trim().replace(/\s+/g, ' ');
   if (name === '') return { ok: false, reason: 'nameTooShort' };
   if (!NAME_RE.test(name) || VARIATION_SELECTOR_RE.test(name)) return { ok: false, reason: 'nameInvalidCharacters' };
   const baseChars = name.match(BASE_CHAR_RE);
   if (baseChars.length < NAME_MIN_LENGTH) return { ok: false, reason: 'nameTooShort' };
-  if (baseChars.length > NAME_MAX_LENGTH) return { ok: false, reason: 'nameTooLong' };
+  if ([...name].length > NAME_MAX_LENGTH) return { ok: false, reason: 'nameTooLong' };
   // "aaa" or "1111" passes every rule above and is still not a name.
   if (new Set(baseChars.map((char) => char.toLowerCase())).size === 1) return { ok: false, reason: 'nameRepetitive' };
   return { ok: true, name };

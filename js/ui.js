@@ -209,9 +209,13 @@ export class Ui {
   // onSubmit receives the raw input and returns an error text, or nothing when
   // the name was accepted. A first-time dialog cannot be dismissed: the room is
   // only joined once there is a name.
-  showNameDialog({ initialName = '', cancellable = false, onSubmit }) {
+  showNameDialog({ initialName = '', maxLength, cancellable = false, onSubmit }) {
     this._nameDialog = { cancellable, onSubmit };
     this.nameInput.value = initialName;
+    // Stops typing at the limit instead of only complaining afterwards. The
+    // rule itself stays in onSubmit: maxlength counts UTF-16 units, so it is
+    // stricter only for the rare letters outside the Basic Multilingual Plane.
+    if (maxLength) this.nameInput.maxLength = maxLength;
     this._setNameError('');
     this.nameModalCloseButton.classList.toggle('is-hidden', !cancellable);
     this.nameModalBackdrop.classList.remove('is-hidden');

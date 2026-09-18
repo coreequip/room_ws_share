@@ -23,7 +23,8 @@ streams appear as thumbnails and can be promoted to the main video with a
 click. Fullscreen via button or the `F` key.
 
 On the first visit the page asks for a name before joining the room: at least
-three letters or digits, nothing else — no spaces, punctuation or emoji. The
+three letters or digits and at most 32 characters, with single spaces allowed
+between words and nothing else — no punctuation or emoji. The
 name is remembered in the browser and can be changed from the info panel,
 which lists everyone in the room with their browser and system, e.g.
 `Baxter (Brave/macOS)`, and marks whoever is currently sharing with 🖥️. Each
@@ -89,7 +90,7 @@ open it in several browser tabs/profiles.
     Expected: The connection panel lists every connection with its codec, resolution, bitrate and packet loss, followed by an "Events" section with a timestamped log (connection state changes, joins/leaves, share start/stop, tab visibility, and any detected video stall). "Copy diagnostics" puts the full untranslated report — header, all connection fields, the whole event log — on the clipboard; the button briefly confirms with "Copied!".
 12. While a stream is running, draw something on it and press `Shift+S` (or click the screenshot button).
     Expected: A toast confirms the image is on the clipboard, and a thumbnail appears in the film strip at the bottom left. The captured PNG holds the video frame at its native resolution with the drawing rendered on top at full opacity — even if the drawing had already begun to fade on screen — and without any of the live mouse cursors. Hovering a thumbnail reveals a copy button, a download button and a remove button; clicking the thumbnail itself opens the full image over the stage, and clicking that enlarged view (or pressing Escape) closes it again. While the pointer rests on the strip nothing fades out, and the wheel scrolls it horizontally once more images exist than fit. Past 15 images the oldest one drops out. The strip fades out with the rest of the controls after a few seconds of no mouse movement.
-13. Open a fresh browser profile on the room link, try `Anna Lena`, `Al` and `😀😀😀` in the name dialog, then enter `Anna`. Press `I` in both tabs.
-    Expected: Each invalid name is refused with a message saying why; `Anna` joins, and the other tab shows the toast "Anna joined". Both info panels list both people with browser and system, the own entry marked "you" with a "Change name" button. While one of them shares, its entry carries 🖥️ on both sides; after a rename or a closed tab the other panel follows within a moment.
+13. Open a fresh browser profile on the room link, try `Anna.`, `Al` and `😀😀😀` in the name dialog, then enter `Anna Lena`. Press `I` in both tabs.
+    Expected: Each invalid name is refused with a message saying why; `Anna Lena` joins, and the other tab shows the toast "Anna Lena joined". Both info panels list both people with browser and system, the own entry marked "you" with a "Change name" button. While one of them shares, its entry carries 🖥️ on both sides; after a rename or a closed tab the other panel follows within a moment.
 14. Language test: set the browser language to English (or simulate it via `navigator.language` in DevTools) and reload the page.
     Expected: Button labels, the warning notice, and status texts appear in English. With German as the browser language, they appear in German. With a third language (e.g. French), they appear in English (fallback).

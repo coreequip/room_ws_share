@@ -22,14 +22,37 @@ test('validateName rejects anything shorter than three letters or digits', () =>
   assert.equal(validateName(42).reason, 'nameTooShort');
 });
 
-test('validateName rejects whitespace, punctuation, symbols and emoji', () => {
-  for (const name of ['Anna Lena', 'Anna\tLena', 'Anna.', 'x_x_x', '<b>Bob', 'Bob😀', '😀😀😀', 'Bob\u200Bby', '1\uFE0F\u20E32\uFE0F\u20E33\uFE0F\u20E3', 'Anna\u200D']) {
+test('validateName rejects punctuation, symbols, emoji and invisible characters', () => {
+  for (const name of ['Anna.', 'x_x_x', '<b>Bob', 'Bob😀', '😀😀😀', 'Bob\u200Bby', '1\uFE0F\u20E32\uFE0F\u20E33\uFE0F\u20E3', 'Anna\u200D']) {
     assert.equal(validateName(name).reason, 'nameInvalidCharacters', name);
   }
 });
 
+test('validateName allows single spaces between words and collapses runs of them', () => {
+  assert.deepEqual(validateName('Anna Lena'), { ok: true, name: 'Anna Lena' });
+  assert.deepEqual(validateName('Jan van der Berg'), { ok: true, name: 'Jan van der Berg' });
+  assert.deepEqual(validateName('  Anna   Lena  '), { ok: true, name: 'Anna Lena' });
+  assert.deepEqual(validateName('Anna\tLena'), { ok: true, name: 'Anna Lena' });
+});
+
+test('validateName counts only letters and digits towards the minimum', () => {
+  assert.equal(validateName('A l').reason, 'nameTooShort');
+  assert.equal(validateName('a a a').reason, 'nameRepetitive');
+  assert.equal(validateName('Anna - Lena').reason, 'nameInvalidCharacters');
+});
+
+test('validateName caps the whole name, spaces included, at 32 characters', () => {
+  assert.deepEqual(validateName('Maria Gonzalez Rodriguez Lopez X'), { ok: true, name: 'Maria Gonzalez Rodriguez Lopez X' });
+  assert.equal(validateName('Maria Gonzalez Rodriguez Lopez XY').reason, 'nameTooLong');
+  // Measured after trimming and collapsing, so padding does not count against it.
+  assert.equal(validateName('   Maria   Gonzalez Rodriguez Lopez X   ').ok, true);
+  // Code points, not UTF-16 units: letters outside the BMP count once.
+  assert.equal(validateName('𐐷𐐸'.repeat(16)).ok, true);
+  assert.equal(validateName('𐐷𐐸'.repeat(16) + '𐐷').reason, 'nameTooLong');
+});
+
 test('validateName rejects overly long names and a single repeated character', () => {
-  assert.equal(validateName('a'.repeat(10) + 'b'.repeat(15)).reason, 'nameTooLong');
+  assert.equal(validateName('a'.repeat(16) + 'b'.repeat(17)).reason, 'nameTooLong');
   assert.equal(validateName('aaaa').reason, 'nameRepetitive');
   assert.equal(validateName('AaA').reason, 'nameRepetitive');
   assert.equal(validateName('1111').reason, 'nameRepetitive');

@@ -1,4 +1,4 @@
-import { parsePresence } from './presence.js?v=b82696';
+import { parsePresence } from './presence.js?v=c4a7d4';
 import { makeOffer, makeAnswer, makeIce, makeStop, makeRestart, makePresence, isAddressedTo, isSignalingMessage } from './signaling-protocol.js?v=e4652b';
 
 export class Signaling {

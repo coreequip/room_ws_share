@@ -1,15 +1,15 @@
 import { config } from './config.js?v=773889';
-import { detectLocale, createTranslator } from './i18n.js?v=0bdbd5';
+import { detectLocale, createTranslator } from './i18n.js?v=25438a';
 import { generateRoomId, getRoomIdFromLocation, roomIdToHash } from './room-id.js?v=b0533e';
-import { Signaling } from './signaling.js?v=8955d1';
+import { Signaling } from './signaling.js?v=cd0bea';
 import { PeerManager } from './peers.js?v=b4e802';
 import { IceServerProvider } from './turn.js?v=fab7f0';
-import { Ui } from './ui.js?v=c8a8b8';
+import { Ui } from './ui.js?v=3c9414';
 import { makeCursorLeave } from './paint-protocol.js?v=c25ffc';
 import { EventLog, StreamHealthTracker, formatDiagnosticsReport, formatClock } from './diagnostics.js?v=fdce96';
 import { RecoveryPolicy } from './recovery.js?v=9d2586';
 import { ScreenshotStore, screenshotFileName } from './screenshot.js?v=88e50e';
-import { validateName, detectClient, Roster, NAME_MAX_LENGTH } from './presence.js?v=b82696';
+import { validateName, detectClient, Roster, NAME_MAX_LENGTH } from './presence.js?v=c4a7d4';
 
 const COPY_FEEDBACK_MS = 2000;
 const STATS_POLL_MS = 1000;
@@ -199,6 +199,7 @@ function main() {
   function askForName({ cancellable }) {
     ui.showNameDialog({
       initialName: userName ?? '',
+      maxLength: NAME_MAX_LENGTH,
       cancellable,
       onSubmit: (raw) => {
         const result = validateName(raw);
