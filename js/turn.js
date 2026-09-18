@@ -41,10 +41,13 @@ export class IceServerProvider {
 
   async _fetch() {
     const controller = typeof AbortController === 'undefined' ? null : new AbortController();
+    // Called unbound on purpose: window.fetch refuses to run as a method of
+    // this object ("Illegal invocation"), and the catch below would swallow it.
+    const fetchImpl = this.fetchImpl;
     let timer;
     try {
       const response = await Promise.race([
-        this.fetchImpl(this.url, controller ? { signal: controller.signal } : undefined),
+        fetchImpl(this.url, controller ? { signal: controller.signal } : undefined),
         new Promise((_, reject) => {
           timer = setTimeout(() => {
             controller?.abort();

@@ -130,3 +130,16 @@ test('IceServerProvider gives up on a hanging endpoint instead of blocking the c
 
   assert.deepEqual(await provider.get(), FALLBACK);
 });
+
+test('IceServerProvider calls fetch unbound, the way window.fetch requires', async () => {
+  // window.fetch throws "Illegal invocation" when called as a method of any
+  // other object -- which is what this.fetchImpl(...) does. The error lands in
+  // the catch, so the only symptom is every client silently staying on STUN.
+  const strictFetch = function (url) {
+    if (this !== undefined && this !== globalThis) throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
+    return Promise.resolve({ ok: true, status: 200, json: async () => CREDENTIALS });
+  };
+  const provider = new IceServerProvider({ url: 'https://live.example/turn', fallback: FALLBACK, fetchImpl: strictFetch });
+
+  assert.deepEqual(await provider.get(), [...FALLBACK, ...CREDENTIALS.iceServers]);
+});
