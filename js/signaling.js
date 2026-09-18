@@ -1,16 +1,22 @@
-import { makeOffer, makeAnswer, makeIce, makeStop, makeRestart, isAddressedTo, isSignalingMessage } from './signaling-protocol.js?v=0008de';
+import { parsePresence } from './presence.js?v=b82696';
+import { makeOffer, makeAnswer, makeIce, makeStop, makeRestart, makePresence, isAddressedTo, isSignalingMessage } from './signaling-protocol.js?v=e4652b';
 
 export class Signaling {
   constructor(room, clientId) {
     this.room = room;
     this.clientId = clientId;
-    this.listeners = { offer: [], answer: [], ice: [], stop: [], restart: [], members: [], memberJoin: [], memberLeave: [] };
+    this.listeners = { offer: [], answer: [], ice: [], stop: [], restart: [], presence: [], open: [], members: [], memberJoin: [], memberLeave: [] };
 
     room.on('message', (message, envelope) => {
       if (!isSignalingMessage(message)) return;
+      const from = envelope.client_id;
+      if (message.type === 'presence') {
+        const presence = parsePresence(message);
+        if (presence && from !== this.clientId) this._emit('presence', { from, ...presence });
+        return;
+      }
       if (message.type !== 'share-stop' && !isAddressedTo(message, this.clientId)) return;
 
-      const from = envelope.client_id;
       if (message.type === 'share-offer') this._emit('offer', { from, streamId: message.stream_id, sdp: message.sdp });
       else if (message.type === 'share-answer') this._emit('answer', { from, streamId: message.stream_id, sdp: message.sdp });
       else if (message.type === 'share-ice') this._emit('ice', { from, streamId: message.stream_id, candidate: message.candidate });
@@ -18,6 +24,9 @@ export class Signaling {
       else if (message.type === 'share-restart') this._emit('restart', { from, streamId: message.stream_id });
     });
 
+    // Fires on the first subscribe and again after every reconnect, which is
+    // exactly when the room needs to hear who this client is.
+    room.on('open', () => this._emit('open'));
     room.on('members', (members) => this._emit('members', members));
     room.on('member_join', (peerId) => this._emit('memberJoin', peerId));
     room.on('member_leave', (peerId) => this._emit('memberLeave', peerId));
@@ -49,6 +58,10 @@ export class Signaling {
 
   sendRestart(to, streamId) {
     this.room.drone.publish({ room: this.room.name, message: makeRestart(to, streamId), no_echo: true });
+  }
+
+  sendPresence(presence, options) {
+    this.room.drone.publish({ room: this.room.name, message: makePresence(presence, options), no_echo: true });
   }
 
   sendStop(streamId) {

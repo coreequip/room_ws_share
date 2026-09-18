@@ -101,3 +101,45 @@ test('sendRestart publishes an addressed share-restart message', () => {
     { room: 'room-1', message: { type: 'share-restart', to: 'client-b', stream_id: 's1' }, no_echo: true },
   ]);
 });
+
+test('Signaling emits validated presence broadcasts from other clients only', () => {
+  const room = createFakeRoom();
+  const signaling = new Signaling(room, 'client-a');
+  const received = [];
+  signaling.on('presence', (payload) => received.push(payload));
+
+  room.emit('message', { type: 'presence', name: 'Baxter', browser: 'Brave', os: 'macOS', sharing: true, hello: true }, { client_id: 'client-b' });
+  room.emit('message', { type: 'presence', name: 'x', browser: 'Brave', os: 'macOS' }, { client_id: 'client-c' });
+  room.emit('message', { type: 'presence', name: 'Myself', browser: 'Brave', os: 'macOS' }, { client_id: 'client-a' });
+
+  assert.deepEqual(received, [
+    { from: 'client-b', name: 'Baxter', browser: 'Brave', os: 'macOS', sharing: true, hello: true },
+  ]);
+});
+
+test('sendPresence broadcasts the local presence, flagged as hello on request', () => {
+  const room = createFakeRoom();
+  const signaling = new Signaling(room, 'client-a');
+  const presence = { name: 'Baxter', browser: 'Brave', os: 'macOS', sharing: false };
+
+  signaling.sendPresence(presence, { hello: true });
+  signaling.sendPresence(presence);
+
+  assert.deepEqual(room.drone.published.map((entry) => entry.message), [
+    { type: 'presence', ...presence, hello: true },
+    { type: 'presence', ...presence, hello: false },
+  ]);
+  assert.equal(room.drone.published[0].no_echo, true);
+});
+
+test('Signaling forwards the room open event so presence can be re-announced', () => {
+  const room = createFakeRoom();
+  const signaling = new Signaling(room, 'client-a');
+  let opened = 0;
+  signaling.on('open', () => { opened += 1; });
+
+  room.emit('open');
+  room.emit('open');
+
+  assert.equal(opened, 2);
+});

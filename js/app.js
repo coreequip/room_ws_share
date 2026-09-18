@@ -1,14 +1,15 @@
 import { config } from './config.js?v=773889';
-import { detectLocale, createTranslator } from './i18n.js?v=9d4eb5';
+import { detectLocale, createTranslator } from './i18n.js?v=0bdbd5';
 import { generateRoomId, getRoomIdFromLocation, roomIdToHash } from './room-id.js?v=b0533e';
-import { Signaling } from './signaling.js?v=f3d39f';
+import { Signaling } from './signaling.js?v=8955d1';
 import { PeerManager } from './peers.js?v=b4e802';
 import { IceServerProvider } from './turn.js?v=ef7229';
-import { Ui } from './ui.js?v=a815c9';
+import { Ui } from './ui.js?v=c8a8b8';
 import { makeCursorLeave } from './paint-protocol.js?v=c25ffc';
-import { EventLog, StreamHealthTracker, formatDiagnosticsReport, formatClock } from './diagnostics.js?v=95abf2';
+import { EventLog, StreamHealthTracker, formatDiagnosticsReport, formatClock } from './diagnostics.js?v=fdce96';
 import { RecoveryPolicy } from './recovery.js?v=9d2586';
 import { ScreenshotStore, screenshotFileName } from './screenshot.js?v=88e50e';
+import { validateName, detectClient, Roster, NAME_MAX_LENGTH } from './presence.js?v=b82696';
 
 const COPY_FEEDBACK_MS = 2000;
 const STATS_POLL_MS = 1000;
@@ -16,6 +17,27 @@ const EVENT_DISPLAY_LIMIT = 15;
 // Values that mean something went wrong, highlighted in the event list so the
 // interesting line is findable at a glance.
 const BAD_EVENT_VALUES = new Set(['disconnected', 'failed', 'closed', 'stalled', 'silent', 'muted', 'offline', 'hidden', 'ended', 'error']);
+const NAME_STORAGE_KEY = 'roomshare.name';
+const SHARING_EMOJI = '🖥️';
+
+// Storage can be unavailable (private windows, blocked site data). The name is
+// a convenience there: without it the dialog simply asks again next time.
+function loadName() {
+  try {
+    const { ok, name } = validateName(localStorage.getItem(NAME_STORAGE_KEY) ?? '');
+    return ok ? name : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveName(name) {
+  try {
+    localStorage.setItem(NAME_STORAGE_KEY, name);
+  } catch {
+    // see loadName
+  }
+}
 
 function resolveRoomId() {
   const existing = getRoomIdFromLocation(location.hash);
@@ -49,6 +71,13 @@ function main() {
   const mutedTracks = new Set(); // `${peerId}:${streamId}` of remote tracks that report no incoming media
   let recoveryCount = 0;
   const shortId = (id) => (id ? String(id).slice(0, 8) : '?');
+  const client = detectClient(navigator.userAgent, { isBrave: 'brave' in navigator, maxTouchPoints: navigator.maxTouchPoints });
+  const roster = new Roster();
+  let userName = loadName();
+  // Everyone else's details come from their presence broadcasts; until one
+  // arrives, a peer is shown by the start of its client id as before.
+  const peerLabel = (peerId) => roster.get(peerId)?.name ?? shortId(peerId);
+  const localPresence = () => ({ name: userName, ...client, sharing: Boolean(localStream) });
 
   const ui = new Ui({
     root: document,
@@ -66,6 +95,7 @@ function main() {
     onInfoClick: () => toggleInfoModal(),
     onInfoCopyClick: () => copyDiagnostics(),
     onInfoModalClose: () => closeInfoModal(),
+    onEditNameClick: () => askForName({ cancellable: true }),
   });
   ui.setConnecting(true);
   ui.setShareBusy(true);
@@ -83,6 +113,8 @@ function main() {
     // Cmd/Ctrl/Alt combinations belong to the browser. Without this guard
     // Cmd+C, Cmd+F and Cmd+P fire the local shortcuts as well.
     if (event.metaKey || event.ctrlKey || event.altKey) return;
+    // Typing a name that contains an S must not start a screen share.
+    if (ui.isNameDialogOpen() || event.target.closest?.('input, textarea')) return;
     const key = event.key.toLowerCase();
     if (key === 's') {
       if (event.shiftKey) captureScreenshot();
@@ -164,6 +196,32 @@ function main() {
     }, COPY_FEEDBACK_MS);
   }
 
+  function askForName({ cancellable }) {
+    ui.showNameDialog({
+      initialName: userName ?? '',
+      cancellable,
+      onSubmit: (raw) => {
+        const result = validateName(raw);
+        if (!result.ok) return t(result.reason, NAME_MAX_LENGTH);
+        userName = result.name;
+        saveName(userName);
+        eventLog.add('name', { value: 'set' });
+        if (signaling) {
+          announcePresence();
+          refreshInfoMembers();
+        }
+        joinRoom();
+        return null;
+      },
+    });
+  }
+
+  function announcePresence(options) {
+    if (signaling && userName) signaling.sendPresence(localPresence(), options);
+  }
+
+  if (!userName) askForName({ cancellable: false });
+
   const drone = new RoomWS('roomshare', { url: config.roomwsUrl });
 
   drone.on('open', (error) => {
@@ -181,6 +239,14 @@ function main() {
       ui.setStatus(t('statusWaitingForShare'));
       return;
     }
+    joinRoom();
+  });
+
+  // Entering the room needs both a server connection and a name, and either
+  // can come second: a returning visitor has the name before the socket opens,
+  // a first-time visitor is usually still typing when it does.
+  function joinRoom() {
+    if (initialized || connectionFailed || !drone.clientId || !userName) return;
     initialized = true;
     ui.setShareBusy(false);
     ui.setInfoBusy(false);
@@ -194,7 +260,7 @@ function main() {
     peers = new PeerManager({
       resolveIceServers: () => iceServers.get(),
       signaling,
-      onRemoteTrack: (peerId, streamId, stream) => ui.addRemoteTrack(peerId, streamId, stream),
+      onRemoteTrack: (peerId, streamId, stream) => ui.addRemoteTrack(peerId, streamId, stream, peerLabel(peerId)),
       onConnectionStateChange: (peerId, streamId, state) => {
         eventLog.add('connection', { peer: shortId(peerId), stream: shortId(streamId), value: state });
         if (state === 'failed') ui.showConnectionFailed(peerId, streamId);
@@ -231,7 +297,25 @@ function main() {
       onPaintChannelStateChange: (peerId, streamId, state) => ui.setPaintChannelOpen(peerId, streamId, state === 'open'),
     });
 
-    signaling.on('members', (members) => ui.setMemberCount(members.length));
+    signaling.on('members', (members) => {
+      ui.setMemberCount(members.length);
+      refreshInfoMembers();
+    });
+
+    signaling.on('open', () => announcePresence({ hello: true }));
+
+    signaling.on('presence', ({ from, hello, ...presence }) => {
+      const isNew = roster.update(from, presence);
+      // A hello is a newcomer; answering it is how the newcomer learns who
+      // was already here. Answers themselves carry no hello, so this cannot
+      // ping-pong.
+      if (hello) {
+        announcePresence();
+        if (isNew) ui.showToast(t('memberJoined', presence.name));
+      }
+      ui.setPeerLabel(from, presence.name);
+      refreshInfoMembers();
+    });
 
     // A viewer whose picture broke asks us to offer the stream again. That is
     // exactly what happens when it presses F5 -- it rejoins, and we send it a
@@ -251,18 +335,20 @@ function main() {
         peers.addLateJoiner(peerId, localStreamId, localStream);
       }
       ui.setMemberCount(signaling.members.length);
-      ui.showToast(t('memberJoined', peerId.slice(0, 8)));
+      refreshInfoMembers();
     });
 
     signaling.on('memberLeave', (peerId) => {
       eventLog.add('member', { peer: shortId(peerId), value: 'leave' });
       ui.setMemberCount(signaling.members.length);
-      ui.showToast(t('memberLeft', peerId.slice(0, 8)));
+      ui.showToast(t('memberLeft', peerLabel(peerId)));
+      roster.remove(peerId);
+      refreshInfoMembers();
     });
 
     startStatsLoop();
     ui.setStatus(t('statusWaitingForShare'));
-  });
+  }
 
   async function toggleSharing() {
     if (sharingBusy) return;
@@ -295,6 +381,8 @@ function main() {
     eventLog.add('share', { stream: shortId(localStreamId), value: 'started' });
     ui.showLocalPreview(localStream, localStreamId);
     ui.setSharing(true);
+    announcePresence();
+    refreshInfoMembers();
     sharingBusy = false;
     ui.setShareBusy(false);
     await peers.startSharing(localStream, localStreamId);
@@ -309,12 +397,15 @@ function main() {
     ui.setSharing(false);
     localStream = null;
     localStreamId = null;
+    announcePresence();
+    refreshInfoMembers();
   }
 
   function toggleInfoModal() {
     infoModalVisible = !infoModalVisible;
     if (infoModalVisible) {
-      ui.setInfoContent(renderInfoHtml(lastStats, eventLog.entries(), recoveryCount, t));
+      refreshInfoMembers();
+      ui.setInfoContent(renderInfoHtml(lastStats, eventLog.entries(), recoveryCount, peerLabel, t));
       ui.showInfoModal();
     } else {
       ui.hideInfoModal();
@@ -344,7 +435,7 @@ function main() {
       const totalBitrateKbps = lastStats.reduce((sum, entry) => sum + (entry.bitrateKbps || 0), 0);
       ui.setShareActivity(totalBitrateKbps);
     }
-    if (infoModalVisible) ui.setInfoContent(renderInfoHtml(lastStats, eventLog.entries(), recoveryCount, t));
+    if (infoModalVisible) ui.setInfoContent(renderInfoHtml(lastStats, eventLog.entries(), recoveryCount, peerLabel, t));
   }
 
   // Only the side holding the media track can offer a connection, so a sharer
@@ -371,8 +462,19 @@ function main() {
     }
   }
 
+  function memberRows() {
+    return roster.list(signaling?.members ?? [], drone.clientId, localPresence());
+  }
+
+  function refreshInfoMembers() {
+    ui.setInfoMembers(renderMembersHtml(memberRows(), shortId, t));
+  }
+
   function copyDiagnostics() {
     const report = formatDiagnosticsReport({
+      members: memberRows().map((row) => ({
+        peer: shortId(row.peerId), name: row.name, browser: row.browser, os: row.os, sharing: row.sharing, self: row.isSelf,
+      })),
       events: eventLog.entries(),
       stats: lastStats,
       generatedAt: Date.now(),
@@ -385,11 +487,25 @@ function main() {
   }
 }
 
-function renderInfoHtml(stats, events, recoveries, t) {
+function renderMembersHtml(rows, shortId, t) {
+  const items = rows.map((row) => {
+    const name = `<span class="info-member-name">${escapeHtml(row.name ?? shortId(row.peerId))}</span>`;
+    const clientInfo = `<span class="info-member-client">(${escapeHtml(`${row.browser}/${row.os}`)})</span>`;
+    const you = row.isSelf ? `<span class="info-member-you">– ${escapeHtml(t('infoMemberYou'))}</span>` : '';
+    const sharing = row.sharing
+      ? `<span class="info-member-share" role="img" title="${escapeHtml(t('infoMemberSharing'))}" aria-label="${escapeHtml(t('infoMemberSharing'))}">${SHARING_EMOJI}</span>`
+      : '';
+    const edit = row.isSelf ? `<button class="btn info-member-edit" data-action="edit-name">${escapeHtml(t('infoEditName'))}</button>` : '';
+    return `<div class="info-member">${name}${clientInfo}${sharing}${you}${edit}</div>`;
+  }).join('');
+  return `<h3>${escapeHtml(t('infoMembersTitle', rows.length))}</h3>${items}`;
+}
+
+function renderInfoHtml(stats, events, recoveries, peerLabel, t) {
   const summary = `<p class="info-recoveries">${escapeHtml(t('infoRecoveries', recoveries))}</p>`;
   const connections = stats.length === 0
     ? `<p>${escapeHtml(t('infoNoConnections'))}</p>`
-    : stats.map((entry) => renderConnectionInfo(entry, t)).join('');
+    : stats.map((entry) => renderConnectionInfo(entry, peerLabel, t)).join('');
   return summary + connections + renderEventsHtml(events, t);
 }
 
@@ -412,10 +528,10 @@ function renderEventsHtml(events, t) {
   return `<div class="info-events">${heading}<div class="info-event-list">${rows}</div></div>`;
 }
 
-function renderConnectionInfo(entry, t) {
+function renderConnectionInfo(entry, peerLabel, t) {
   const title = entry.direction === 'outbound'
-    ? t('infoDirectionSending', entry.peerId.slice(0, 8))
-    : t('infoDirectionReceiving', entry.peerId.slice(0, 8));
+    ? t('infoDirectionSending', peerLabel(entry.peerId))
+    : t('infoDirectionReceiving', peerLabel(entry.peerId));
 
   const rows = [[t('infoFieldState'), entry.connectionState]];
 
@@ -461,7 +577,7 @@ function qualityLimitationLabel(reason, t) {
 }
 
 function escapeHtml(str) {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 main();

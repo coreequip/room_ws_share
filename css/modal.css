@@ -114,6 +114,111 @@
   color: #ff9b8a;
 }
 
+.info-members {
+  border-bottom: var(--border-subtle);
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+}
+
+.info-members h3 {
+  font-size: 0.95em;
+  margin: 0 0 6px;
+}
+
+.info-member {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+}
+
+.info-member-name {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.info-member-client,
+.info-member-you {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.info-member-share {
+  cursor: default;
+}
+
+.info-member-edit {
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 0.85em;
+}
+
+.name-modal {
+  max-width: 360px;
+}
+
+.name-hint {
+  color: var(--color-text-muted);
+  margin: 0 0 10px;
+}
+
+.name-error {
+  color: #ff9b8a;
+  min-height: 1.4em;
+  margin: 6px 0 0;
+}
+
+.name-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.name-actions .btn {
+  padding: 0.5em 1em;
+}
+
+.modal-close.is-hidden {
+  display: none;
+}
+
+/* A field to write into sits flatter and lighter than a read-only display, and
+   darkens on focus with a glow in place of the outline. */
+.field {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px 10px;
+  font: inherit;
+  color: var(--color-text);
+  cursor: text;
+  background-color: #272a3b;
+  border: 1px solid #08090c;
+  border-radius: 4px;
+  transition-property: background-color, color, box-shadow;
+  transition-duration: 0.25s;
+  box-shadow:
+    1px 1px 1px #ffffff1a,
+    0 0 5px #ffffff0d,
+    inset 0 0 5px #0000004d,
+    inset 5px 5px 10px #0000001a;
+}
+.field::placeholder {
+  color: #ffffff80;
+}
+.field:focus {
+  background-color: #1d1f2c;
+  outline: none;
+  box-shadow:
+    1px 1px 1px #ffffff1a,
+    0 0 5px #ffffff1a,
+    inset 0 0 5px #00000080,
+    inset 5px 5px 10px #0000004d,
+    0 0 10px #7dc8ff40;
+}
+.field.is-invalid {
+  border-color: #8d1d1d;
+}
+
 .info-recoveries {
   color: var(--color-text-muted);
   margin: 0 0 10px;

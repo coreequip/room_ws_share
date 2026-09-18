@@ -17,7 +17,7 @@
   <link rel="stylesheet" href="css/buttons.css?v=8e274e" />
   <link rel="stylesheet" href="css/spinner.css?v=7fa638" />
   <link rel="stylesheet" href="css/video-tile.css?v=e4f071" />
-  <link rel="stylesheet" href="css/modal.css?v=afde7c" />
+  <link rel="stylesheet" href="css/modal.css?v=5616f8" />
   <link rel="stylesheet" href="css/toast.css?v=5065bd" />
 </head>
 <body>
@@ -64,12 +64,32 @@
           <button class="btn modal-close" data-role="info-modal-close">&times;</button>
         </div>
       </div>
-      <div class="modal-body" data-role="info-modal-body"></div>
+      <div class="modal-body">
+        <div class="info-members" data-role="info-members"></div>
+        <div data-role="info-modal-body"></div>
+      </div>
     </div>
+  </div>
+
+  <div class="modal-backdrop is-hidden" data-role="name-modal-backdrop">
+    <form class="modal name-modal" data-role="name-form" novalidate>
+      <div class="modal-header">
+        <h2 class="modal-title" data-role="name-modal-title"></h2>
+        <button type="button" class="btn modal-close is-hidden" data-role="name-modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="name-hint" data-role="name-hint"></p>
+        <input class="field" data-role="name-input" type="text" autocomplete="nickname" spellcheck="false" />
+        <p class="name-error" data-role="name-error" aria-live="polite"></p>
+        <div class="name-actions">
+          <button type="submit" class="btn btn-confirm" data-role="name-submit"></button>
+        </div>
+      </div>
+    </form>
   </div>
 </main>
 
 <script src="js/roomws.js?v=eb1bc1"></script>
-<script type="module" src="js/app.js?v=f14824"></script>
+<script type="module" src="js/app.js?v=5fccad"></script>
 </body>
 </html>

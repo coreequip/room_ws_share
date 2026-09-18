@@ -14,7 +14,7 @@ const SPARKLINE_MAX_SAMPLES = 20;
 const SPARKLINE_SMOOTHING = 0.3;
 
 export class Ui {
-  constructor({ root, t, onShareClick, onCopyLinkClick, onFullscreenClick, onZoomClick, onPaintClick, onPaintPointerEvent, onScreenshotClick, onScreenshotCopy, onScreenshotDownload, onScreenshotRemove, onInfoClick, onInfoCopyClick, onInfoModalClose }) {
+  constructor({ root, t, onShareClick, onCopyLinkClick, onFullscreenClick, onZoomClick, onPaintClick, onPaintPointerEvent, onScreenshotClick, onScreenshotCopy, onScreenshotDownload, onScreenshotRemove, onInfoClick, onInfoCopyClick, onInfoModalClose, onEditNameClick }) {
     this.root = root;
     this.t = t;
     this._onPaintPointerEvent = onPaintPointerEvent;
@@ -65,6 +65,12 @@ export class Ui {
     this.infoModalBackdrop = root.querySelector('[data-role="info-modal-backdrop"]');
     this.infoModalTitleEl = root.querySelector('[data-role="info-modal-title"]');
     this.infoModalBody = root.querySelector('[data-role="info-modal-body"]');
+    this.infoMembersEl = root.querySelector('[data-role="info-members"]');
+    this.nameModalBackdrop = root.querySelector('[data-role="name-modal-backdrop"]');
+    this.nameForm = root.querySelector('[data-role="name-form"]');
+    this.nameInput = root.querySelector('[data-role="name-input"]');
+    this.nameErrorEl = root.querySelector('[data-role="name-error"]');
+    this.nameModalCloseButton = root.querySelector('[data-role="name-modal-close"]');
     this.infoCopyButton = root.querySelector('[data-role="info-copy-button"]');
     this.infoModalCloseButton = root.querySelector('[data-role="info-modal-close"]');
     this.memberWidgetCountEl = root.querySelector('[data-role="member-widget-count"]');
@@ -88,6 +94,11 @@ export class Ui {
     this.infoModalTitleEl.textContent = this.t('infoLabel');
     this.infoCopyButton.textContent = this.t('infoCopy');
     this.infoModalCloseButton.title = this.t('infoClose');
+    root.querySelector('[data-role="name-modal-title"]').textContent = this.t('nameDialogTitle');
+    root.querySelector('[data-role="name-hint"]').textContent = this.t('nameDialogHint');
+    root.querySelector('[data-role="name-submit"]').textContent = this.t('nameDialogSubmit');
+    this.nameInput.placeholder = this.t('nameDialogPlaceholder');
+    this.nameModalCloseButton.title = this.t('infoClose');
     this.memberWidgetCountEl.textContent = '–';
     this.memberWidgetStatusEl.textContent = this.t('memberWidgetNoShare');
     this.statusEl.textContent = this.t('statusConnecting');
@@ -104,6 +115,27 @@ export class Ui {
     this.infoModalBackdrop.addEventListener('click', (event) => {
       if (event.target === this.infoModalBackdrop) onInfoModalClose();
     });
+
+    // The member list is rebuilt from the outside; delegating keeps the edit
+    // button working without re-wiring it on every render.
+    this.infoMembersEl.addEventListener('click', (event) => {
+      if (event.target.closest('[data-action="edit-name"]')) onEditNameClick();
+    });
+
+    this._nameDialog = null; // { cancellable, onSubmit } while the dialog is open
+    this.nameForm.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const error = this._nameDialog?.onSubmit(this.nameInput.value);
+      if (error) this._setNameError(error);
+      else this.hideNameDialog();
+    });
+    this.nameInput.addEventListener('input', () => this._setNameError(''));
+    // The page-wide shortcuts ignore keys typed into the field, Escape
+    // included, so the dialog has to handle it itself.
+    this.nameForm.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && this._nameDialog?.cancellable) this.hideNameDialog();
+    });
+    this.nameModalCloseButton.addEventListener('click', () => this.hideNameDialog());
 
     this.lightboxEl.addEventListener('click', () => this.hideLightbox());
 
@@ -163,6 +195,43 @@ export class Ui {
 
   setInfoContent(html) {
     this.infoModalBody.innerHTML = html;
+  }
+
+  setInfoMembers(html) {
+    // Unlike the stats below it, this block holds a button. Replacing it every
+    // second would swallow any click whose mousedown and mouseup straddle a
+    // re-render, so it is only touched when something actually changed.
+    if (html === this._infoMembersHtml) return;
+    this._infoMembersHtml = html;
+    this.infoMembersEl.innerHTML = html;
+  }
+
+  // onSubmit receives the raw input and returns an error text, or nothing when
+  // the name was accepted. A first-time dialog cannot be dismissed: the room is
+  // only joined once there is a name.
+  showNameDialog({ initialName = '', cancellable = false, onSubmit }) {
+    this._nameDialog = { cancellable, onSubmit };
+    this.nameInput.value = initialName;
+    this._setNameError('');
+    this.nameModalCloseButton.classList.toggle('is-hidden', !cancellable);
+    this.nameModalBackdrop.classList.remove('is-hidden');
+    this.nameInput.focus();
+    this.nameInput.select();
+  }
+
+  hideNameDialog() {
+    this._nameDialog = null;
+    this.nameModalBackdrop.classList.add('is-hidden');
+    this.nameInput.blur();
+  }
+
+  isNameDialogOpen() {
+    return this._nameDialog !== null;
+  }
+
+  _setNameError(text) {
+    this.nameErrorEl.textContent = text;
+    this.nameInput.classList.toggle('is-invalid', text !== '');
   }
 
   setInfoCopied(isCopied) {
@@ -254,8 +323,19 @@ export class Ui {
     this._removeTile(SELF_KEY);
   }
 
-  addRemoteTrack(peerId, streamId, mediaStream) {
-    this._setTile(`${peerId}:${streamId}`, mediaStream, peerId.slice(0, 8), { peerId, streamId });
+  addRemoteTrack(peerId, streamId, mediaStream, label) {
+    this._setTile(`${peerId}:${streamId}`, mediaStream, label, { peerId, streamId });
+  }
+
+  // A name can arrive after the stream it belongs to, or change later on.
+  setPeerLabel(peerId, label) {
+    let changed = false;
+    for (const tile of this.tiles.values()) {
+      if (tile.peerId !== peerId || tile.hasError || tile.label === label) continue;
+      tile.label = label;
+      changed = true;
+    }
+    if (changed) this._render();
   }
 
   setTileStatus(peerId, streamId, text) {

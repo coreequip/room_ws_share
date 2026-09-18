@@ -114,12 +114,15 @@ function formatFields(fields) {
 
 // Deliberately untranslated: the report is written by whoever hits the problem
 // and read by whoever debugs it, often on differently localized browsers.
-export function formatDiagnosticsReport({ events, stats, generatedAt, userAgent, recoveries = 0 }) {
+export function formatDiagnosticsReport({ events, stats, generatedAt, userAgent, recoveries = 0, members = [] }) {
   const lines = [
     'roomshare diagnostics',
     `generated: ${formatTimestamp(generatedAt)}`,
     `userAgent: ${userAgent}`,
     `recoveries: ${recoveries}`,
+    '',
+    `members (${members.length}):`,
+    ...(members.length ? members.map((member) => `- ${formatFields(member)}`) : ['none']),
     '',
     `connections (${stats.length}):`,
     ...(stats.length ? stats.map((entry) => `- ${formatFields(entry)}`) : ['none']),

@@ -187,3 +187,15 @@ test('formatDiagnosticsReport states how often the connection was rebuilt', () =
 
   assert.match(report, /recoveries: 3\n/);
 });
+
+test('formatDiagnosticsReport lists the room members with their client', () => {
+  const report = formatDiagnosticsReport({
+    events: [],
+    stats: [],
+    generatedAt: 0,
+    userAgent: 'x',
+    members: [{ peer: 'abc12345', name: 'Baxter', browser: 'Brave', os: 'macOS', sharing: true, self: true }, { peer: 'def67890', name: null }],
+  });
+
+  assert.match(report, /members \(2\):\n- peer=abc12345 name=Baxter browser=Brave os=macOS sharing=true self=true\n- peer=def67890\n/);
+});
