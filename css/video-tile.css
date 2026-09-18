@@ -1,14 +1,10 @@
 .video-tile {
   position: relative;
-  background-color: #06070a;
+  background-color: var(--color-surface-sunken);
   border: 1px solid #000;
   border-radius: 8px;
   overflow: hidden;
-  box-shadow:
-    1px 1px 1px #ffffff1a,
-    0 0 5px #ffffff0d,
-    inset 0 0 5px #00000080,
-    inset 5px 5px 10px #0000004d;
+  box-shadow: var(--shadow-sunken);
 }
 .video-tile video {
   display: block;
@@ -24,7 +20,7 @@
   right: 0;
   padding: 4px 10px;
   background: linear-gradient(0deg, #000000b3, transparent);
-  color: #eee;
+  color: var(--color-text);
   font-size: .8em;
   text-shadow: 0 1px #000;
 }
@@ -43,7 +39,7 @@
   background: rgba(0, 0, 0, 0.55);
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 4px;
-  color: #eee;
+  color: var(--color-text);
   cursor: pointer;
   display: flex;
   align-items: center;
