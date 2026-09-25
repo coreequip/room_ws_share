@@ -4,7 +4,7 @@ import { generateRoomId, getRoomIdFromLocation, roomIdToHash } from './room-id.j
 import { Signaling } from './signaling.js?v=cd0bea';
 import { PeerManager } from './peers.js?v=b4e802';
 import { IceServerProvider } from './turn.js?v=fab7f0';
-import { Ui } from './ui.js?v=3c9414';
+import { Ui } from './ui.js?v=5c214a';
 import { makeCursorLeave } from './paint-protocol.js?v=c25ffc';
 import { EventLog, StreamHealthTracker, formatDiagnosticsReport, formatClock } from './diagnostics.js?v=fdce96';
 import { RecoveryPolicy } from './recovery.js?v=9d2586';
@@ -96,6 +96,7 @@ function main() {
     onInfoCopyClick: () => copyDiagnostics(),
     onInfoModalClose: () => closeInfoModal(),
     onEditNameClick: () => askForName({ cancellable: true }),
+    onVideoPlayError: (err) => eventLog.add('video-play', { value: err.name }),
   });
   ui.setConnecting(true);
   ui.setShareBusy(true);

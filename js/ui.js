@@ -3,6 +3,7 @@ import { computeVideoContentRect, pointToNormalized } from './paint-geometry.js?
 import { generateStrokeId, makeCursor, makeStrokeStart, makeStrokePoint, makeStrokeEnd, makeCursorLeave } from './paint-protocol.js?v=c25ffc';
 import { PaintOverlay } from './paint-canvas.js?v=1a266b';
 import { drawScreenshot } from './screenshot.js?v=88e50e';
+import { attachStream } from './video-playback.js?v=c0fa8d';
 
 const SELF_KEY = 'self:local';
 const IDLE_HIDE_DELAY_MS = 2500;
@@ -14,13 +15,14 @@ const SPARKLINE_MAX_SAMPLES = 20;
 const SPARKLINE_SMOOTHING = 0.3;
 
 export class Ui {
-  constructor({ root, t, onShareClick, onCopyLinkClick, onFullscreenClick, onZoomClick, onPaintClick, onPaintPointerEvent, onScreenshotClick, onScreenshotCopy, onScreenshotDownload, onScreenshotRemove, onInfoClick, onInfoCopyClick, onInfoModalClose, onEditNameClick }) {
+  constructor({ root, t, onShareClick, onCopyLinkClick, onFullscreenClick, onZoomClick, onPaintClick, onPaintPointerEvent, onScreenshotClick, onScreenshotCopy, onScreenshotDownload, onScreenshotRemove, onInfoClick, onInfoCopyClick, onInfoModalClose, onEditNameClick, onVideoPlayError }) {
     this.root = root;
     this.t = t;
     this._onPaintPointerEvent = onPaintPointerEvent;
     this._onScreenshotCopy = onScreenshotCopy;
     this._onScreenshotDownload = onScreenshotDownload;
     this._onScreenshotRemove = onScreenshotRemove;
+    this._onVideoPlayError = onVideoPlayError;
     this.tiles = new Map(); // key -> { stream, label, hasError, peerId, streamId }
     this.mainKey = null;
     this.selfPrevMainKey = null; // mainKey to restore when the self tile is un-promoted
@@ -616,9 +618,7 @@ export class Ui {
     style.textContent = '.paint-overlay { position: absolute; inset: 0; pointer-events: none; }';
     pipWindow.document.head.append(style);
     const video = document.createElement('video');
-    video.autoplay = true;
-    video.playsInline = true;
-    video.srcObject = stream;
+    attachStream(video, stream, this._onVideoPlayError);
     video.style.cssText = 'width:100%;height:100%;display:block;object-fit:contain;';
     pipWindow.document.body.style.cssText = 'margin:0;background:#000;position:relative;';
     pipWindow.document.body.append(video);
@@ -771,13 +771,13 @@ export class Ui {
     if (this.mainKey !== null) {
       const main = this.tiles.get(this.mainKey);
       this.stageVideo.style.display = '';
-      this.stageVideo.srcObject = main.stream;
+      attachStream(this.stageVideo, main.stream, this._onVideoPlayError);
       this.stageEmpty.style.display = 'none';
       this.stageLabelEl.textContent = main.hasError ? main.label : '';
       this.stageLabelEl.style.display = main.hasError ? '' : 'none';
     } else {
       this.stageVideo.style.display = 'none';
-      this.stageVideo.srcObject = null;
+      attachStream(this.stageVideo, null);
       this.stageEmpty.style.display = '';
       this.stageLabelEl.style.display = 'none';
       this.overlayEl.classList.remove('is-hidden');
@@ -791,9 +791,7 @@ export class Ui {
       const container = document.createElement('div');
       container.className = 'video-tile thumbnail';
       const video = document.createElement('video');
-      video.autoplay = true;
-      video.playsInline = true;
-      video.srcObject = tile.stream;
+      attachStream(video, tile.stream, this._onVideoPlayError);
       const label = document.createElement('div');
       label.className = 'video-tile-label';
       label.textContent = tile.label;
