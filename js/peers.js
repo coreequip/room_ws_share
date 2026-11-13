@@ -7,6 +7,28 @@ function splitChannelKey(key) {
   return [key.slice(0, separator), key.slice(separator + 1)];
 }
 
+// AV1 first, then VP9 profile 2, the rest of VP9 and everything else.
+// Firefox (since 158) scales AV1 down to the negotiated level, and the default
+// level-idx=5 (AV1 level 3.1) caps a screen share at roughly 720p. VP9 has no
+// such cap, so where AV1 is level-capped it goes behind VP9.
+export function orderVideoCodecs(codecs, { av1LevelCapped = false } = {}) {
+  const av1 = [];
+  const highProfile = [];
+  const otherVp9 = [];
+  const rest = [];
+  for (const codec of codecs) {
+    const mime = codec.mimeType.toLowerCase();
+    const isVp9 = mime === 'video/vp9';
+    if (mime === 'video/av1') av1.push(codec);
+    else if (isVp9 && codec.sdpFmtpLine?.includes('profile-id=2')) highProfile.push(codec);
+    else if (isVp9) otherVp9.push(codec);
+    else rest.push(codec);
+  }
+  return av1LevelCapped
+    ? [...highProfile, ...otherVp9, ...av1, ...rest]
+    : [...av1, ...highProfile, ...otherVp9, ...rest];
+}
+
 export class PeerManager {
   constructor({ resolveIceServers, signaling, onRemoteTrack, onConnectionStateChange, onTrackMuteChange, onPaintMessage, onPaintChannelStateChange }) {
     this.resolveIceServers = resolveIceServers;
@@ -88,12 +110,11 @@ export class PeerManager {
     this.signaling.sendOffer(peerId, streamId, pc.localDescription);
   }
 
+  // degradationPreference belongs to the sender parameters as a whole; set per
+  // encoding it is silently ignored.
   _preferResolutionOverFramerate(sender) {
     const params = sender.getParameters();
-    if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
-    params.encodings.forEach((encoding) => {
-      encoding.degradationPreference = 'maintain-resolution';
-    });
+    params.degradationPreference = 'maintain-resolution';
     sender.setParameters(params).catch((err) => console.error('PeerManager: failed to set encoding parameters', err));
   }
 
@@ -104,19 +125,8 @@ export class PeerManager {
     const codecs = RTCRtpReceiver.getCapabilities('video')?.codecs;
     if (!codecs) return;
 
-    const av1 = [];
-    const highProfile = [];
-    const otherVp9 = [];
-    const rest = [];
-    for (const codec of codecs) {
-      const mime = codec.mimeType.toLowerCase();
-      const isVp9 = mime === 'video/vp9';
-      if (mime === 'video/av1') av1.push(codec);
-      else if (isVp9 && codec.sdpFmtpLine?.includes('profile-id=2')) highProfile.push(codec);
-      else if (isVp9) otherVp9.push(codec);
-      else rest.push(codec);
-    }
-    transceiver.setCodecPreferences([...av1, ...highProfile, ...otherVp9, ...rest]);
+    const av1LevelCapped = typeof navigator !== 'undefined' && /\bFirefox\//.test(navigator.userAgent);
+    transceiver.setCodecPreferences(orderVideoCodecs(codecs, { av1LevelCapped }));
   }
 
   async _handleOffer(from, streamId, sdp) {

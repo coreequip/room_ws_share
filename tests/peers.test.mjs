@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PeerManager } from '../js/peers.js';
+import { PeerManager, orderVideoCodecs } from '../js/peers.js';
 
 // PeerManager only touches RTCPeerConnection when a connection is actually set
 // up; broadcastPaint works purely off the paintChannels map, so a fake
@@ -211,5 +211,48 @@ test('PeerManager builds connections with the ICE servers it resolves at connect
     assert.deepEqual(configs[0].iceServers, iceServers);
   } finally {
     restore();
+  }
+});
+
+const codec = (mimeType, sdpFmtpLine) => ({ mimeType, clockRate: 90000, sdpFmtpLine });
+const AV1 = codec('video/AV1', 'level-idx=5;profile=0;tier=0');
+const VP9_P2 = codec('video/VP9', 'profile-id=2');
+const VP9_P0 = codec('video/VP9', 'profile-id=0');
+const H264 = codec('video/H264', 'profile-level-id=42e01f');
+const VP8 = codec('video/VP8');
+
+test('orderVideoCodecs puts AV1 first, then VP9 profile 2, other VP9 and the rest', () => {
+  assert.deepEqual(orderVideoCodecs([H264, VP9_P0, VP8, AV1, VP9_P2], { av1LevelCapped: false }), [AV1, VP9_P2, VP9_P0, H264, VP8]);
+});
+
+test('orderVideoCodecs moves AV1 behind VP9 where the sender caps AV1 at its negotiated level', () => {
+  assert.deepEqual(orderVideoCodecs([H264, VP9_P0, VP8, AV1, VP9_P2], { av1LevelCapped: true }), [VP9_P2, VP9_P0, AV1, H264, VP8]);
+});
+
+test('PeerManager sets degradationPreference on the sender parameters, not per encoding', async () => {
+  const applied = [];
+  const original = globalThis.RTCPeerConnection;
+  globalThis.RTCPeerConnection = class {
+    createDataChannel() { return { readyState: 'connecting', send() {} }; }
+    addTrack() { return { getParameters: () => ({ encodings: [{}] }), setParameters: async (p) => { applied.push(p); } }; }
+    getTransceivers() { return []; }
+    async createOffer() { return { type: 'offer' }; }
+    async setLocalDescription() {}
+    get localDescription() { return { type: 'offer' }; }
+    close() {}
+  };
+  const manager = new PeerManager({
+    resolveIceServers: async () => [],
+    signaling: { on: () => {}, members: ['me', 'peer-1'], clientId: 'me', sendOffer: () => {} },
+  });
+  const track = { kind: 'video' };
+
+  try {
+    await manager.startSharing({ getTracks: () => [track] }, 'stream-1');
+    assert.equal(applied.length, 1);
+    assert.equal(applied[0].degradationPreference, 'maintain-resolution');
+    assert.equal(applied[0].encodings[0].degradationPreference, undefined);
+  } finally {
+    globalThis.RTCPeerConnection = original;
   }
 });
